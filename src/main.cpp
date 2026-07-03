@@ -67,7 +67,8 @@ int Nz;
 
 int Nsites;
 
-double dt = 0.001;
+double dt;
+
 double eta = 1.0;
 double temp = 2.0;
 double mass_density = 1.0;
@@ -360,9 +361,16 @@ int main(int argc, const char *argv[])
 
     // Thermalization
 
-    const int therm_steps = 1000;
+    const int therm_steps = 10000;
     dt = 0.1;
 
+    auto k_min = 2*M_PI/static_cast<real_t>(max({Nx, Ny, Nz}));
+    auto eq_time = 1/(eta*k_min*k_min/mass_density);
+
+    auto therm_time = therm_steps*dt;
+
+    cout << "Thermalization: " << eq_time << " << " << therm_time << endl;
+    
     fftw_execute(plan_jx_to_jpx);
     fftw_execute(plan_jy_to_jpy);
     fftw_execute(plan_jz_to_jpz);
@@ -434,7 +442,7 @@ int main(int argc, const char *argv[])
 
         t += dt;
 
-        cout << "Finished step " << i << "/" << n_steps << endl;
+        // cout << "Finished step " << i << "/" << n_steps << endl;
     }
 
     gsl_odeiv2_step_free(id_step);
