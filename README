@@ -1,0 +1,2 @@
+./sim --dt 0.01 --nx 16 --ny 16 --nz 1 --eta 0
+python scripts/plot_j2_animation.py --nx 16 --ny 16 --nz 1 --dt 0.01

@@ -4,12 +4,17 @@
 #include <random>
 #include <vector>
 #include <span>
+#include <cassert>
 
 #include <gsl/gsl_pow_int.h>
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_odeiv2.h>
 
 #include <fftw3.h>
+
+#include <boost/program_options.hpp>
+
+namespace po = boost::program_options;
 
 using namespace std;
 
@@ -56,13 +61,13 @@ fftw_plan plan_lpx_to_lx;
 fftw_plan plan_lpy_to_ly;
 fftw_plan plan_lpz_to_lz;
 
-int Nx = 16;
-int Ny = 16;
-int Nz = 16;
+int Nx;
+int Ny;
+int Nz;
 
-int Nsites = Nx*Ny*Nz;
+int Nsites;
 
-double dt = 0.1;
+double dt = 0.001;
 double eta = 1.0;
 double temp = 2.0;
 double mass_density = 1.0;
@@ -71,37 +76,6 @@ double mass_density = 1.0;
 
 mt19937 mt{random_device{}()};
 normal_distribution<> normal_dist(0, 1);
-
-void print_ji(const vector<real_t>& ji)
-{
-    for (int nz = 0; nz < Nz; ++nz) {
-        for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
-                int idx = nz*Nx*Ny + ny*Nx + nx;
-
-                cout << ji[idx] << " ";
-            }
-            cout << endl;
-        }
-    }
-}
-
-void print_jpi(const vector<complex_t>& jpi)
-{
-    int Nzh = Nz/2+1;
-
-    for (int nz = 0; nz < Nzh; ++nz) {
-        for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
-                // FFTW r2c layout: nx slowest, halved dim (nz) fastest
-                int idx = nx*Ny*Nzh + ny*Nzh + nz;
-
-                cout << jpi[idx] << " ";
-            }
-            cout << endl;
-        }
-    }
-}
 
 template <typename T>
 void write_row(ofstream& out, const span<T>& values)
@@ -125,42 +99,6 @@ void write_row(ofstream& out_re, ofstream& out_im, const span<complex_t>& values
     out_im << '\n';
 }
 
-// void write_lattice_avg(const string& path, const string& header, const vector<real_t>& avg)
-// {
-//     ofstream out(path);
-//     out << "# x y z " << header << '\n';
-
-//     for (int nz = 0; nz < Nz; ++nz) {
-//         for (int ny = 0; ny < Ny; ++ny) {
-//             for (int nx = 0; nx < Nx; ++nx) {
-//                 int idx = nz*Nx*Ny + ny*Nx + nx;
-
-//                 out << nx << ' ' << ny << ' ' << nz << ' ' << avg[idx] << '\n';
-//             }
-//         }
-//     }
-// }
-
-// void write_kspace_avg(const std::string& path, const std::string& header, const vector<complex_t>& avg)
-// {
-//     ofstream out(path);
-//     out << "# kx ky kz " << header << '\n';
-
-//     for (int nz = 0; nz < Nz/2+1; ++nz) {
-//         for (int ny = 0; ny < Ny; ++ny) {
-//             for (int nx = 0; nx < Nx; ++nx) {
-//                 int idx = nz*Nx*Ny + ny*Nx + nx;
-
-//                 real_t kx = 2*M_PI*(nx/static_cast<real_t>(Nx)-0.5);
-//                 real_t ky = 2*M_PI*(ny/static_cast<real_t>(Ny)-0.5);
-//                 real_t kz = 2*M_PI*(nz/static_cast<real_t>(Nz)-0.5);
-
-//                 out << kx << ' ' << ky << ' ' << kz << ' ' << avg[idx].real() << ' ' << avg[idx].imag() << '\n';
-//             }
-//         }
-//     }
-// }
-
 void do_diss_step()
 {
     for (int i=0; i<Nsites; ++i) {
@@ -178,9 +116,9 @@ void do_diss_step()
     for (int nz = 0; nz < Nzh; ++nz) {
         for (int ny = 0; ny < Ny; ++ny) {
             for (int nx = 0; nx < Nx; ++nx) {
-                auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx)-0.5);
-                auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny)-0.5);
-                auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz)-0.5);
+                auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx));
+                auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny));
+                auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz));
 
                 // lattice spacing a=1
                 auto ktx = sin(kx);
@@ -217,16 +155,18 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
     for (int nz = 0; nz < Nz; ++nz) {
         for (int ny = 0; ny < Ny; ++ny) {
             for (int nx = 0; nx < Nx; ++nx) {
-                int idx = nz*Nx*Ny + ny*Nx + nx;
-                
-                int idx_xm = nz*Nx*Ny + ny*Nx + ( (nx-1)&(Nx-1) );
-                int idx_xp = nz*Nx*Ny + ny*Nx + ( (nx+1)&(Nx-1) );
+                // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
+                // Ny, Nz, ...) assumes: nx slowest, nz fastest.
+                int idx = nx*Ny*Nz + ny*Nz + nz;
 
-                int idx_ym = nz*Nx*Ny + ((ny-1)&(Ny-1))*Nx + nx;
-                int idx_yp = nz*Nx*Ny + ((ny+1)&(Ny-1))*Nx + nx;
+                int idx_xm = ((nx-1)&(Nx-1))*Ny*Nz + ny*Nz + nz;
+                int idx_xp = ((nx+1)&(Nx-1))*Ny*Nz + ny*Nz + nz;
 
-                int idx_zm = ((nz-1)&(Nz-1))*Nx*Ny + ny*Nx + nx;
-                int idx_zp = ((nz+1)&(Nz-1))*Nx*Ny + ny*Nx + nx;
+                int idx_ym = nx*Ny*Nz + ((ny-1)&(Ny-1))*Nz + nz;
+                int idx_yp = nx*Ny*Nz + ((ny+1)&(Ny-1))*Nz + nz;
+
+                int idx_zm = nx*Ny*Nz + ny*Nz + ( (nz-1)&(Nz-1) );
+                int idx_zp = nx*Ny*Nz + ny*Nz + ( (nz+1)&(Nz-1) );
 
                 // no static regulator:
                 auto vx = jx[idx]/mass_density;
@@ -245,6 +185,10 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
                 auto Dx_jz = (jz[idx_xp] - jz[idx_xm])/2.0;
                 auto Dy_jz = (jz[idx_yp] - jz[idx_ym])/2.0;
                 auto Dz_jz = (jz[idx_zp] - jz[idx_zm])/2.0;
+
+                // if(rand()%Nsites==0) {
+                // cout<<(Dx_jx+Dy_jy+Dz_jz)<<endl;    
+                // }
 
                 auto djxdt = -vx*( Dx_jx - Dx_jx ) -vy*( Dy_jx - Dx_jy ) -vz*( Dz_jx - Dx_jz );
                 auto djydt = -vx*( Dx_jy - Dy_jx ) -vy*( Dy_jy - Dy_jy ) -vz*( Dz_jy - Dy_jz );
@@ -267,9 +211,9 @@ void perform_transverse_projection()
     for (int nz = 0; nz < Nzh; ++nz) {
         for (int ny = 0; ny < Ny; ++ny) {
             for (int nx = 0; nx < Nx; ++nx) {
-                auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx)-0.5);
-                auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny)-0.5);
-                auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz)-0.5);
+                auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx));
+                auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny));
+                auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz));
 
                 // lattice spacing a=1
                 auto ktx = sin(kx);
@@ -298,6 +242,26 @@ void perform_transverse_projection()
 
 int main(int argc, const char *argv[])
 {
+    po::options_description desc("Options");
+    desc.add_options()
+        ("help", "print help message")
+        ("nx", po::value<int>(&Nx)->required(), "Number of lattice sites in x")
+        ("ny", po::value<int>(&Ny)->required(), "Number of lattice sites in y")
+        ("nz", po::value<int>(&Nz)->required(), "Number of lattice sites in z")
+        ("dt", po::value<double>(&dt)->required(), "Time step used in the simulation")
+        ("eta", po::value<double>(&eta)->default_value(eta), "shear viscosity");
+
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
+
+    if (vm.count("help")) {
+        cout << desc << endl;
+        return 0;
+    }
+
+    Nsites = Nx*Ny*Nz;
+
     cout << "Nx, Ny, Nz MUST BE POWERS OF TWO" << endl;
 
     //WARNING:
@@ -353,15 +317,21 @@ int main(int argc, const char *argv[])
         jz[n] = 0;
     }
 
-    // Initialize the 2D input array with some dummy data
-    // Row-major order: index = row * Width + col
-    // for (int r = 0; r < H; r++) {
-    //     for (int c = 0; c < W; c++) {
-    //         jx[r * W + c] = (double)(r + c); 
-    //     }
-    // }
+    // Taylor-Green vortex
 
-    // Execute the 2D FFT
+    for (int nz = 0; nz < Nz; ++nz) {
+        for (int ny = 0; ny < Ny; ++ny) {
+            for (int nx = 0; nx < Nx; ++nx) {
+                // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
+                // Ny, Nz, ...) assumes: nx slowest, nz fastest.
+                int idx = nx*Ny*Nz + ny*Nz + nz;
+
+                jx[idx] = sin(nx/static_cast<real_t>(Nx)*2*M_PI)*cos(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
+                jy[idx] = -cos(nx/static_cast<real_t>(Nx)*2*M_PI)*sin(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
+                jz[idx] = 0;
+            }
+        }
+    }
 
     std::ofstream jx_file("out/jx.dat");
     std::ofstream jy_file("out/jy.dat");
@@ -384,11 +354,37 @@ int main(int argc, const char *argv[])
         nullptr
     };
 
-    gsl_odeiv2_step *id_step = gsl_odeiv2_step_alloc(gsl_odeiv2_step_rk4, 3*Nsites);
+    gsl_odeiv2_step *id_step = gsl_odeiv2_step_alloc(gsl_odeiv2_step_rkf45, 3*Nsites);
 
     auto jerr_ideal_step_storage = vector<real_t>(3*Nsites, 0);
 
+    // Thermalization
+
+    const int therm_steps = 100;
+    dt = 0.1;
+
+    fftw_execute(plan_jx_to_jpx);
+    fftw_execute(plan_jy_to_jpy);
+    fftw_execute(plan_jz_to_jpz);
+
+    for (int i=0; i<therm_steps; ++i) {
+        do_diss_step();
+    }
+
+    fftw_execute(plan_jpx_to_jx);
+    fftw_execute(plan_jpy_to_jy);
+    fftw_execute(plan_jpz_to_jz);
+
+    for (int n = 0; n < Nsites; ++n) {
+        jx[n] /= Nsites;
+        jy[n] /= Nsites;
+        jz[n] /= Nsites;
+    }
+
+    // Actual simulation in equilibrium state
+
     const int n_steps = 1000;
+    dt = 0.01;
 
     double t = 0.0;
 
@@ -400,15 +396,9 @@ int main(int argc, const char *argv[])
         fftw_execute(plan_jz_to_jpz);
         // JX IS DESTROYED
 
-        // for (int n = 0; n < Nsites; ++n) {
-        //     jpx[n] /= sqrt(Nsites);
-        //     jpy[n] /= sqrt(Nsites);
-        //     jpz[n] /= sqrt(Nsites);
-        // }
-
-        do_diss_step();
-
         perform_transverse_projection();
+
+        // do_diss_step();
 
         // OUTPUT, THEN TRANSFORM TO REAL SPACE
 
@@ -436,11 +426,11 @@ int main(int argc, const char *argv[])
         write_row(jz_file, jz);
 
         // IDEAL STEP
-        /*int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
+        int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
         if (status != GSL_SUCCESS) {
             fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
             return 1;
-        }*/
+        }
 
         t += dt;
 
@@ -448,16 +438,6 @@ int main(int argc, const char *argv[])
     }
 
     gsl_odeiv2_step_free(id_step);
-
-    // Print the complex output array (Size: H x W_complex)
-    // printf("2D FFT Output (%d x %d complex grid):\n", H, W_complex);
-    // for (int r = 0; r < H; r++) {
-    //     for (int c = 0; c < W_complex; c++) {
-    //         int idx = r * W_complex + c;
-    //         printf("out[%d][%d] = %6.2f + %6.2fi\t", r, c, out[idx][0], out[idx][1]);
-    //     }
-    //     printf("\n");
-    // }
 
     fftw_destroy_plan(plan_jx_to_jpx);
     fftw_destroy_plan(plan_jy_to_jpy);

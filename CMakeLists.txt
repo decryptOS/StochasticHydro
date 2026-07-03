@@ -10,7 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(GSL REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFTW3 REQUIRED IMPORTED_TARGET fftw3)
-find_package(Boost REQUIRED CONFIG)
+find_package(Boost REQUIRED CONFIG COMPONENTS program_options)
 
 add_executable( sim src/main.cpp )
 
@@ -21,5 +21,6 @@ target_link_libraries( sim
     GSL::gsl
     GSL::gslcblas
     Boost::boost
+    Boost::program_options
     PkgConfig::FFTW3
 )
