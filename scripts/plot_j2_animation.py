@@ -47,8 +47,9 @@ def main() -> None:
     y = np.arange(args.ny)
 
     mesh = ax.pcolormesh(x, y, j2_z0[0], vmin=vmin, vmax=vmax, shading="nearest")
+    ax.set_aspect(args.nx/args.ny)
     cbar = fig.colorbar(mesh, ax=ax)
-    cbar.set_label("jx^2 + jy^2 + jz^2")
+    cbar.set_label("jx")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_title(f"z=0, t={time[0]:.4f}")
