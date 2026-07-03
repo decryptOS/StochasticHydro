@@ -5,6 +5,8 @@
 #include <vector>
 #include <span>
 #include <cassert>
+#include <filesystem>
+#include <string>
 
 #include <gsl/gsl_pow_int.h>
 #include <gsl/gsl_errno.h>
@@ -15,6 +17,7 @@
 #include <boost/program_options.hpp>
 
 namespace po = boost::program_options;
+namespace fs = std::filesystem;
 
 using namespace std;
 
@@ -243,6 +246,8 @@ void perform_transverse_projection()
 
 int main(int argc, const char *argv[])
 {
+    std::string output_folder;
+
     po::options_description desc("Options");
     desc.add_options()
         ("help", "print help message")
@@ -250,7 +255,8 @@ int main(int argc, const char *argv[])
         ("ny", po::value<int>(&Ny)->required(), "Number of lattice sites in y")
         ("nz", po::value<int>(&Nz)->required(), "Number of lattice sites in z")
         ("dt", po::value<double>(&dt)->required(), "Time step used in the simulation")
-        ("eta", po::value<double>(&eta)->default_value(eta), "shear viscosity");
+        ("eta", po::value<double>(&eta)->default_value(eta), "shear viscosity")
+        ("output-folder", po::value<std::string>(&output_folder)->default_value("out"), "Folder to write output files to");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -260,6 +266,8 @@ int main(int argc, const char *argv[])
         cout << desc << endl;
         return 0;
     }
+
+    fs::create_directories(output_folder);
 
     Nsites = Nx*Ny*Nz;
 
@@ -334,17 +342,17 @@ int main(int argc, const char *argv[])
     //     }
     // }
 
-    std::ofstream jx_file("out/jx.dat");
-    std::ofstream jy_file("out/jy.dat");
-    std::ofstream jz_file("out/jz.dat");
+    std::ofstream jx_file(output_folder + "/jx.dat");
+    std::ofstream jy_file(output_folder + "/jy.dat");
+    std::ofstream jz_file(output_folder + "/jz.dat");
 
-    std::ofstream jpx_re_file("out/jpx_re.dat");
-    std::ofstream jpy_re_file("out/jpy_re.dat");
-    std::ofstream jpz_re_file("out/jpz_re.dat");
+    std::ofstream jpx_re_file(output_folder + "/jpx_re.dat");
+    std::ofstream jpy_re_file(output_folder + "/jpy_re.dat");
+    std::ofstream jpz_re_file(output_folder + "/jpz_re.dat");
 
-    std::ofstream jpx_im_file("out/jpx_im.dat");
-    std::ofstream jpy_im_file("out/jpy_im.dat");
-    std::ofstream jpz_im_file("out/jpz_im.dat");
+    std::ofstream jpx_im_file(output_folder + "/jpx_im.dat");
+    std::ofstream jpy_im_file(output_folder + "/jpy_im.dat");
+    std::ofstream jpz_im_file(output_folder + "/jpz_im.dat");
 
     // Setup Runge-Kutta method for ideal step
 
