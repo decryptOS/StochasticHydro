@@ -13,4 +13,7 @@ _deps
 CMakeUserPresets.json
 
 # Executable
-st-hydro
+sim
+
+# Output files
+out/
