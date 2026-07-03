@@ -319,19 +319,19 @@ int main(int argc, const char *argv[])
 
     // Taylor-Green vortex
 
-    for (int nz = 0; nz < Nz; ++nz) {
-        for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
-                // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
-                // Ny, Nz, ...) assumes: nx slowest, nz fastest.
-                int idx = nx*Ny*Nz + ny*Nz + nz;
+    // for (int nz = 0; nz < Nz; ++nz) {
+    //     for (int ny = 0; ny < Ny; ++ny) {
+    //         for (int nx = 0; nx < Nx; ++nx) {
+    //             // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
+    //             // Ny, Nz, ...) assumes: nx slowest, nz fastest.
+    //             int idx = nx*Ny*Nz + ny*Nz + nz;
 
-                jx[idx] = sin(nx/static_cast<real_t>(Nx)*2*M_PI)*cos(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
-                jy[idx] = -cos(nx/static_cast<real_t>(Nx)*2*M_PI)*sin(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
-                jz[idx] = 0;
-            }
-        }
-    }
+    //             jx[idx] = sin(nx/static_cast<real_t>(Nx)*2*M_PI)*cos(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
+    //             jy[idx] = -cos(nx/static_cast<real_t>(Nx)*2*M_PI)*sin(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
+    //             jz[idx] = 0;
+    //         }
+    //     }
+    // }
 
     std::ofstream jx_file("out/jx.dat");
     std::ofstream jy_file("out/jy.dat");
@@ -360,7 +360,7 @@ int main(int argc, const char *argv[])
 
     // Thermalization
 
-    const int therm_steps = 100;
+    const int therm_steps = 1000;
     dt = 0.1;
 
     fftw_execute(plan_jx_to_jpx);
@@ -398,7 +398,7 @@ int main(int argc, const char *argv[])
 
         perform_transverse_projection();
 
-        // do_diss_step();
+        do_diss_step();
 
         // OUTPUT, THEN TRANSFORM TO REAL SPACE
 
