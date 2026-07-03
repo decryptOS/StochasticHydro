@@ -70,7 +70,7 @@ int Nsites;
 double dt;
 
 double eta = 1.0;
-double temp = 2.0;
+double temp = 0.5;
 double mass_density = 1.0;
 
 // Random number generator
@@ -391,7 +391,7 @@ int main(int argc, const char *argv[])
 
     // Actual simulation in equilibrium state
 
-    const int n_steps = 1000;
+    const int n_steps = 4000;
     dt = 0.01;
 
     double t = 0.0;
@@ -434,11 +434,11 @@ int main(int argc, const char *argv[])
         write_row(jz_file, jz);
 
         // IDEAL STEP
-        int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
-        if (status != GSL_SUCCESS) {
-            fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
-            return 1;
-        }
+        // int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
+        // if (status != GSL_SUCCESS) {
+        //     fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
+        //     return 1;
+        // }
 
         t += dt;
 
