@@ -103,7 +103,7 @@ void write_row(ofstream& out_re, ofstream& out_im, const span<complex_t>& values
     out_im << '\n';
 }
 
-void do_diss_step()
+void do_diss_step(double dt)
 {
     for (int i=0; i<Nsites; ++i) {
         lx[i] = normal_dist(mt);
@@ -271,8 +271,6 @@ int main(int argc, const char *argv[])
 
     Nsites = Nx*Ny*Nz;
 
-    cout << "Nx, Ny, Nz MUST BE POWERS OF TWO" << endl;
-
     //WARNING:
 //The fftw_plan_dft_c2r function destroys (overwrites) its input array (out) during execution to save memory.
 
@@ -369,13 +367,13 @@ int main(int argc, const char *argv[])
 
     // Thermalization
 
-    const int therm_steps = 10000;
-    dt = 0.1;
+    const int therm_steps = 200000;
+    const double therm_dt = 0.1;
 
     auto k_min = 2*M_PI/static_cast<real_t>(max({Nx, Ny, Nz}));
     auto eq_time_slow = 1/(eta*k_min*k_min/mass_density);
 
-    auto therm_time = therm_steps*dt;
+    auto therm_time = therm_steps*therm_dt;
 
     cout << "Relaxation time of slowest mode= " << eq_time_slow << " (k_min=" << k_min << ")" << endl;
     cout << "  Numerical thermalization time= " << therm_time << endl;
@@ -385,7 +383,7 @@ int main(int argc, const char *argv[])
     fftw_execute(plan_jz_to_jpz);
 
     for (int i=0; i<therm_steps; ++i) {
-        do_diss_step();
+        do_diss_step(therm_dt);
     }
 
     fftw_execute(plan_jpx_to_jx);
@@ -400,8 +398,7 @@ int main(int argc, const char *argv[])
 
     // Actual simulation in equilibrium state
 
-    const int n_steps = 10000;
-    dt = 0.01;
+    const int n_steps = 100000;
 
     auto eq_time_fast = 1/(eta*4*M_PI*M_PI/mass_density);
 
@@ -409,7 +406,7 @@ int main(int argc, const char *argv[])
     cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
     cout << "                             dt= " << dt << endl;
     
-    const int write_every_n_steps = 10;
+    const int write_every_n_steps = 50;
 
     double t = 0.0;
 
@@ -423,7 +420,7 @@ int main(int argc, const char *argv[])
 
         perform_transverse_projection();
 
-        do_diss_step();
+        do_diss_step(dt);
 
         // OUTPUT, THEN TRANSFORM TO REAL SPACE
 
@@ -464,6 +461,9 @@ int main(int argc, const char *argv[])
         //     fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
         //     return 1;
         // }
+
+        cout << "t=" << t << "\r";
+        cout.flush();
 
         t += dt;
 

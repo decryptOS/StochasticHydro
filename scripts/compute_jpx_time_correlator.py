@@ -26,14 +26,14 @@ def load_mode(re_path: Path, im_path: Path, nkx: int, nky: int, nkz: int,
 
 
 def time_correlator(jpx: np.ndarray) -> np.ndarray:
-    #n = len(jpx)
+    n = len(jpx)
     correlator = np.empty(len(jpx), dtype=complex)
-    # for T in range(n):
-    #     correlator[T] = np.mean(np.conj(jpx[:n - T]) * jpx[T:])
-    for n in range(len(jpx)):
-        for m in range(len(jpx)-n):
-            correlator[n] += np.conj(jpx[n+m]) * jpx[m]#
-        correlator[n] /= len(jpx)-n
+    for T in range(n):
+        correlator[T] = np.mean(np.conj(jpx[:n - T]) * jpx[T:])
+    # for n in range(len(jpx)):
+    #     for m in range(len(jpx)-n):
+    #         correlator[n] += np.conj(jpx[n+m]) * jpx[m]#
+    #     correlator[n] /= (len(jpx)-n)
     return correlator
 
 
