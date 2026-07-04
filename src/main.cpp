@@ -15,6 +15,7 @@
 #include <fftw3.h>
 
 #include <boost/program_options.hpp>
+#include <boost/assert.hpp>
 
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
@@ -419,10 +420,11 @@ int main(int argc, const char *argv[])
         // JX IS DESTROYED
 
         perform_transverse_projection();
-
+        
         do_diss_step(dt);
 
-        // OUTPUT, THEN TRANSFORM TO REAL SPACE
+        // TODO Optimize
+        perform_transverse_projection();
 
         if (i%write_every_n_steps == 0) {
 
@@ -431,6 +433,8 @@ int main(int argc, const char *argv[])
             write_row(jpz_re_file, jpz_im_file, jpz);
 
         }
+
+        // OUTPUT, THEN TRANSFORM TO REAL SPACE
 
         // HERE WE SHOULD READ OUT JX, JY, JZ
 
@@ -456,11 +460,11 @@ int main(int argc, const char *argv[])
         }
 
         // IDEAL STEP
-        // int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
-        // if (status != GSL_SUCCESS) {
-        //     fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
-        //     return 1;
-        // }
+        int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
+        if (status != GSL_SUCCESS) {
+            fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
+            return 1;
+        }
 
         cout << "t=" << t << "\r";
         cout.flush();
