@@ -1,3 +1,7 @@
-sh run.sh
-python scripts/compute_jpx_time_correlator.py --nx 32 --ny 32 --nz 1 --nkx 0 --nky 2 --nkz 0 --dt 10 --run-dirs run1 run2 run3 run4 run5 run6 run7 run8
-python scripts/plot_jpx_time_correlator.py --eta 0.01 --temp 1 --mass-density 1
+./sim --dt 0.02 --nx 32 --ny 32 --nz 1 --eta 0.01 --output-folder taylor-green-vortex
+python scripts/plot_sanity_checks.py --nx 32 --ny 32 --nz 1 --dt 10 \                
+    --mass-density 1 --temp 1 --run-dir taylor-green-vortex
+
+#sh run.sh
+#python scripts/compute_jpx_time_correlator.py --nx 32 --ny 32 --nz 1 --nkx 0 --nky 2 --nkz 0 --dt 10 --run-dirs run1 run2 run3 run4 run5 run6 run7 run8
+#python scripts/plot_jpx_time_correlator.py --eta 0.01 --temp 1 --mass-density 1

@@ -47,6 +47,28 @@ fftw_plan plan_jpx_to_jx;
 fftw_plan plan_jpy_to_jy;
 fftw_plan plan_jpz_to_jz;
 
+// Time derivative of momentum density
+
+vector<real_t> djdt_storage;
+
+span<real_t> djxdt;
+span<real_t> djydt;
+span<real_t> djzdt;
+
+vector<complex_t> djpdt_storage;
+
+span<complex_t> djpxdt;
+span<complex_t> djpydt;
+span<complex_t> djpzdt;
+
+fftw_plan plan_djxdt_to_djpxdt;
+fftw_plan plan_djydt_to_djpydt;
+fftw_plan plan_djzdt_to_djpzdt;
+
+fftw_plan plan_djpxdt_to_djxdt;
+fftw_plan plan_djpydt_to_djydt;
+fftw_plan plan_djpzdt_to_djzdt;
+
 // Langevin noise
 
 vector<real_t> lx;
@@ -102,6 +124,42 @@ void write_row(ofstream& out_re, ofstream& out_im, const span<complex_t>& values
         out_im << value.imag() << ' ';
     }
     out_im << '\n';
+}
+
+void project_transverse(span<complex_t> jpx, span<complex_t> jpy, span<complex_t> jpz)
+{
+    int Nzh = Nz/2+1;
+
+    for (int nz = 0; nz < Nzh; ++nz) {
+        for (int ny = 0; ny < Ny; ++ny) {
+            for (int nx = 0; nx < Nx; ++nx) {
+                auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx));
+                auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny));
+                auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz));
+
+                // lattice spacing a=1
+                auto ktx = sin(kx);
+                auto kty = sin(ky);
+                auto ktz = sin(kz);
+
+                auto kt2 = ktx*ktx + kty*kty + ktz*ktz;
+
+                // k=0 and the Nyquist-degenerate points (sin(k_i)=0 in all
+                // three directions) have no well-defined transverse direction.
+                [[unlikely]]
+                if (kt2 < 1e-14) continue;
+
+                // FFTW r2c layout: nx slowest, halved dim (nz) fastest
+                int idx = nx*Ny*Nzh + ny*Nzh + nz;
+
+                auto kt_dot_jp = ktx*jpx[idx] + kty*jpy[idx] + ktz*jpz[idx];
+
+                jpx[idx] = jpx[idx] - ktx*kt_dot_jp/kt2;
+                jpy[idx] = jpy[idx] - kty*kt_dot_jp/kt2;
+                jpz[idx] = jpz[idx] - ktz*kt_dot_jp/kt2;
+            }
+        }
+    }
 }
 
 void do_diss_step(double dt)
@@ -195,54 +253,30 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
                 // cout<<(Dx_jx+Dy_jy+Dz_jz)<<endl;    
                 // }
 
-                auto djxdt = -vx*( Dx_jx - Dx_jx ) -vy*( Dy_jx - Dx_jy ) -vz*( Dz_jx - Dx_jz );
-                auto djydt = -vx*( Dx_jy - Dy_jx ) -vy*( Dy_jy - Dy_jy ) -vz*( Dz_jy - Dy_jz );
-                auto djzdt = -vx*( Dx_jz - Dz_jx ) -vy*( Dy_jz - Dz_jy ) -vz*( Dz_jz - Dz_jz );
-
-                dydt[idx+0*Nsites] = djxdt;
-                dydt[idx+1*Nsites] = djydt;
-                dydt[idx+2*Nsites] = djzdt;
+                djxdt[idx] = -vx*( Dx_jx - Dx_jx ) -vy*( Dy_jx - Dx_jy ) -vz*( Dz_jx - Dx_jz );
+                djydt[idx] = -vx*( Dx_jy - Dy_jx ) -vy*( Dy_jy - Dy_jy ) -vz*( Dz_jy - Dy_jz );
+                djzdt[idx] = -vx*( Dx_jz - Dz_jx ) -vy*( Dy_jz - Dz_jy ) -vz*( Dz_jz - Dz_jz );
             }
         }
+    }
+
+    fftw_execute(plan_djxdt_to_djpxdt);
+    fftw_execute(plan_djydt_to_djpydt);
+    fftw_execute(plan_djzdt_to_djpzdt);
+
+    project_transverse(djpxdt, djpydt, djpzdt);
+
+    fftw_execute(plan_djpxdt_to_djxdt);   // destroys djp*, recomputed next call
+    fftw_execute(plan_djpydt_to_djydt);
+    fftw_execute(plan_djpzdt_to_djzdt);
+
+    for (int n = 0; n < Nsites; ++n) {
+        dydt[n+0*Nsites] = djxdt[n]/Nsites;
+        dydt[n+1*Nsites] = djydt[n]/Nsites;
+        dydt[n+2*Nsites] = djzdt[n]/Nsites;
     }
 
     return GSL_SUCCESS;
-}
-
-void perform_transverse_projection()
-{
-    int Nzh = Nz/2+1;
-
-    for (int nz = 0; nz < Nzh; ++nz) {
-        for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
-                auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx));
-                auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny));
-                auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz));
-
-                // lattice spacing a=1
-                auto ktx = sin(kx);
-                auto kty = sin(ky);
-                auto ktz = sin(kz);
-
-                auto kt2 = ktx*ktx + kty*kty + ktz*ktz;
-
-                // k=0 and the Nyquist-degenerate points (sin(k_i)=0 in all
-                // three directions) have no well-defined transverse direction.
-                [[unlikely]]
-                if (kt2 < 1e-14) continue;
-
-                // FFTW r2c layout: nx slowest, halved dim (nz) fastest
-                int idx = nx*Ny*Nzh + ny*Nzh + nz;
-
-                auto kt_dot_jp = ktx*jpx[idx] + kty*jpy[idx] + ktz*jpz[idx];
-
-                jpx[idx] = jpx[idx] - ktx*kt_dot_jp/kt2;
-                jpy[idx] = jpy[idx] - kty*kt_dot_jp/kt2;
-                jpz[idx] = jpz[idx] - ktz*kt_dot_jp/kt2;
-            }
-        }
-    }
 }
 
 int main(int argc, const char *argv[])
@@ -299,6 +333,26 @@ int main(int argc, const char *argv[])
     plan_jpy_to_jy = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&jpy[0]), &jy[0], FFTW_ESTIMATE);
     plan_jpz_to_jz = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&jpz[0]), &jz[0], FFTW_ESTIMATE);
 
+    // Time derivative of momentum density
+
+    djdt_storage = vector<real_t>(3*Nsites, 0);
+    djxdt = span<real_t>(djdt_storage.data()+0*Nsites, Nsites);
+    djydt = span<real_t>(djdt_storage.data()+1*Nsites, Nsites);
+    djzdt = span<real_t>(djdt_storage.data()+2*Nsites, Nsites);
+
+    djpdt_storage = vector<complex_t>(3*Np, complex_t{0, 0});
+    djpxdt = span<complex_t>(djpdt_storage.data()+0*Np, Np);
+    djpydt = span<complex_t>(djpdt_storage.data()+1*Np, Np);
+    djpzdt = span<complex_t>(djpdt_storage.data()+2*Np, Np);
+
+    plan_djxdt_to_djpxdt = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &djxdt[0], reinterpret_cast<fftw_complex *>(&djpxdt[0]), FFTW_ESTIMATE);
+    plan_djydt_to_djpydt = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &djydt[0], reinterpret_cast<fftw_complex *>(&djpydt[0]), FFTW_ESTIMATE);
+    plan_djzdt_to_djpzdt = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &djzdt[0], reinterpret_cast<fftw_complex *>(&djpzdt[0]), FFTW_ESTIMATE);
+    
+    plan_djpxdt_to_djxdt = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&djpxdt[0]), &djxdt[0], FFTW_ESTIMATE);
+    plan_djpydt_to_djydt = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&djpydt[0]), &djydt[0], FFTW_ESTIMATE);
+    plan_djpzdt_to_djzdt = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&djpzdt[0]), &djzdt[0], FFTW_ESTIMATE);
+
     // Noise
 
     lx = std::vector<real_t>(Nsites, 0);
@@ -327,19 +381,19 @@ int main(int argc, const char *argv[])
 
     // Taylor-Green vortex
 
-    // for (int nz = 0; nz < Nz; ++nz) {
-    //     for (int ny = 0; ny < Ny; ++ny) {
-    //         for (int nx = 0; nx < Nx; ++nx) {
-    //             // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
-    //             // Ny, Nz, ...) assumes: nx slowest, nz fastest.
-    //             int idx = nx*Ny*Nz + ny*Nz + nz;
+    for (int nz = 0; nz < Nz; ++nz) {
+        for (int ny = 0; ny < Ny; ++ny) {
+            for (int nx = 0; nx < Nx; ++nx) {
+                // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
+                // Ny, Nz, ...) assumes: nx slowest, nz fastest.
+                int idx = nx*Ny*Nz + ny*Nz + nz;
 
-    //             jx[idx] = sin(nx/static_cast<real_t>(Nx)*2*M_PI)*cos(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
-    //             jy[idx] = -cos(nx/static_cast<real_t>(Nx)*2*M_PI)*sin(ny/static_cast<real_t>(Ny)*2*M_PI) + 1.0;
-    //             jz[idx] = 0;
-    //         }
-    //     }
-    // }
+                jx[idx] = sin(nx/static_cast<real_t>(Nx)*2*M_PI)*cos(ny/static_cast<real_t>(Ny)*2*M_PI)+1.0;
+                jy[idx] = -cos(nx/static_cast<real_t>(Nx)*2*M_PI)*sin(ny/static_cast<real_t>(Ny)*2*M_PI)+1.0;
+                jz[idx] = 0;
+            }
+        }
+    }
 
     std::ofstream jx_file(output_folder + "/jx.dat");
     std::ofstream jy_file(output_folder + "/jy.dat");
@@ -384,7 +438,7 @@ int main(int argc, const char *argv[])
     fftw_execute(plan_jz_to_jpz);
 
     for (int i=0; i<therm_steps; ++i) {
-        do_diss_step(therm_dt);
+        // do_diss_step(therm_dt);
     }
 
     fftw_execute(plan_jpx_to_jx);
@@ -399,7 +453,7 @@ int main(int argc, const char *argv[])
 
     // Actual simulation in equilibrium state
 
-    const int n_steps = 100000;
+    const int n_steps = 50000;
 
     auto eq_time_fast = 1/(eta*4*M_PI*M_PI/mass_density);
 
@@ -407,7 +461,7 @@ int main(int argc, const char *argv[])
     cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
     cout << "                             dt= " << dt << endl;
     
-    const int write_every_n_steps = 50;
+    const int write_every_n_steps = 10*50;
 
     double t = 0.0;
 
@@ -419,12 +473,12 @@ int main(int argc, const char *argv[])
         fftw_execute(plan_jz_to_jpz);
         // JX IS DESTROYED
 
-        perform_transverse_projection();
+        project_transverse(jpx, jpy, jpz);
         
-        do_diss_step(dt);
+        // do_diss_step(dt);
 
         // TODO Optimize
-        perform_transverse_projection();
+        project_transverse(jpx, jpy, jpz);
 
         if (i%write_every_n_steps == 0) {
 
@@ -483,6 +537,14 @@ int main(int argc, const char *argv[])
     fftw_destroy_plan(plan_jpx_to_jx);
     fftw_destroy_plan(plan_jpy_to_jy);
     fftw_destroy_plan(plan_jpz_to_jz);
+
+    fftw_destroy_plan(plan_djxdt_to_djpxdt);
+    fftw_destroy_plan(plan_djydt_to_djpydt);
+    fftw_destroy_plan(plan_djzdt_to_djpzdt);
+
+    fftw_destroy_plan(plan_djpxdt_to_djxdt);
+    fftw_destroy_plan(plan_djpydt_to_djydt);
+    fftw_destroy_plan(plan_djpzdt_to_djzdt);
 
     fftw_destroy_plan(plan_lx_to_lpx);
     fftw_destroy_plan(plan_ly_to_lpy);
