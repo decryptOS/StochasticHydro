@@ -73,7 +73,7 @@ int Nsites;
 double dt;
 
 double eta = 1.0;
-double temp = 0.5;
+double temp = 1.0;
 double mass_density = 1.0;
 
 // Random number generator
@@ -373,12 +373,13 @@ int main(int argc, const char *argv[])
     dt = 0.1;
 
     auto k_min = 2*M_PI/static_cast<real_t>(max({Nx, Ny, Nz}));
-    auto eq_time = 1/(eta*k_min*k_min/mass_density);
+    auto eq_time_slow = 1/(eta*k_min*k_min/mass_density);
 
     auto therm_time = therm_steps*dt;
 
-    cout << "Thermalization: " << eq_time << " << " << therm_time << endl;
-    
+    cout << "Relaxation time of slowest mode= " << eq_time_slow << " (k_min=" << k_min << ")" << endl;
+    cout << "  Numerical thermalization time= " << therm_time << endl;
+
     fftw_execute(plan_jx_to_jpx);
     fftw_execute(plan_jy_to_jpy);
     fftw_execute(plan_jz_to_jpz);
@@ -399,8 +400,16 @@ int main(int argc, const char *argv[])
 
     // Actual simulation in equilibrium state
 
-    const int n_steps = 4000;
+    const int n_steps = 10000;
     dt = 0.01;
+
+    auto eq_time_fast = 1/(eta*4*M_PI*M_PI/mass_density);
+
+    cout << "                          Nt*dt= " << n_steps*dt << endl;
+    cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
+    cout << "                             dt= " << dt << endl;
+    
+    const int write_every_n_steps = 10;
 
     double t = 0.0;
 
@@ -418,9 +427,13 @@ int main(int argc, const char *argv[])
 
         // OUTPUT, THEN TRANSFORM TO REAL SPACE
 
-        write_row(jpx_re_file, jpx_im_file, jpx);
-        write_row(jpy_re_file, jpy_im_file, jpy);
-        write_row(jpz_re_file, jpz_im_file, jpz);
+        if (i%write_every_n_steps == 0) {
+
+            write_row(jpx_re_file, jpx_im_file, jpx);
+            write_row(jpy_re_file, jpy_im_file, jpy);
+            write_row(jpz_re_file, jpz_im_file, jpz);
+
+        }
 
         // HERE WE SHOULD READ OUT JX, JY, JZ
 
@@ -437,9 +450,13 @@ int main(int argc, const char *argv[])
 
         // OUTPUT, THEN IDEAL STEP
 
-        write_row(jx_file, jx);
-        write_row(jy_file, jy);
-        write_row(jz_file, jz);
+        if (i%write_every_n_steps == 0) {
+
+            write_row(jx_file, jx);
+            write_row(jy_file, jy);
+            write_row(jz_file, jz);
+
+        }
 
         // IDEAL STEP
         // int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
