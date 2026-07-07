@@ -227,6 +227,12 @@ void do_diss_step(double dt)
     }
 }
 
+inline int mod(int x, int m)
+{
+    int r = x % m;
+    return r + (m & (r >> 31));  // adds m only when r is negative
+}
+
 int djdt_ideal(double t, const double y[], double dydt[], void *params)
 {
     auto *jx = &y[0*Nsites];
@@ -243,14 +249,14 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
                 // Ny, Nz, ...) assumes: nx slowest, nz fastest.
                 int idx = nx*Ny*Nz + ny*Nz + nz;
 
-                int idx_xm = ((nx-1)&(Nx-1))*Ny*Nz + ny*Nz + nz;
-                int idx_xp = ((nx+1)&(Nx-1))*Ny*Nz + ny*Nz + nz;
+                int idx_xm = mod(nx-1, Nx)*Ny*Nz + ny*Nz + nz;
+                int idx_xp = mod(nx+1, Nx)*Ny*Nz + ny*Nz + nz;
 
-                int idx_ym = nx*Ny*Nz + ((ny-1)&(Ny-1))*Nz + nz;
-                int idx_yp = nx*Ny*Nz + ((ny+1)&(Ny-1))*Nz + nz;
+                int idx_ym = nx*Ny*Nz + mod(ny-1, Ny)*Nz + nz;
+                int idx_yp = nx*Ny*Nz + mod(ny+1, Ny)*Nz + nz;
 
-                int idx_zm = nx*Ny*Nz + ny*Nz + ( (nz-1)&(Nz-1) );
-                int idx_zp = nx*Ny*Nz + ny*Nz + ( (nz+1)&(Nz-1) );
+                int idx_zm = nx*Ny*Nz + ny*Nz + mod(nz-1, Nz);
+                int idx_zp = nx*Ny*Nz + ny*Nz + mod(nz+1, Nz);
 
                 // no static regulator:
                 auto vx = jx[idx]/mass_density;
