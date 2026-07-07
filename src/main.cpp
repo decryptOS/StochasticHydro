@@ -94,15 +94,33 @@ int Nz;
 int Nsites;
 
 double dt;
+double sim_time;
 
 double eta = 1.0;
 double temp = 1.0;
 double mass_density = 1.0;
+double eta_uv_cutoff = 0.4*M_PI;
 
 // Random number generator
 
 mt19937 mt{random_device{}()};
 normal_distribution<> normal_dist(0, 1);
+
+/**
+ * UV regulator for shear viscosity
+ * 
+ * Full shear viscosity:
+ * eta(p) = (1+eta_reg_uv(p^2)) * eta
+ */
+inline double eta_reg_uv(double p2)
+{
+    return gsl_pow_2(p2/(eta_uv_cutoff*eta_uv_cutoff));
+}
+
+inline double eta_k2_dep(double p2)
+{
+    return (1+eta_reg_uv(p2))*eta;
+}
 
 template <typename T>
 void write_row(ofstream& out, const span<T>& values)
@@ -188,7 +206,9 @@ void do_diss_step(double dt)
                 auto kty = sin(ky);
                 auto ktz = sin(kz);
 
-                auto damp = eta/mass_density*(ktx*ktx+kty*kty+ktz*ktz);
+                auto kt2 = ktx*ktx+kty*kty+ktz*ktz;
+
+                auto damp = eta_k2_dep(kt2)*kt2/mass_density;
 
                 // FFTW r2c layout: nx slowest, halved dim (nz) fastest
                 int idx = nx*Ny*Nzh + ny*Nzh + nz;
@@ -290,7 +310,9 @@ int main(int argc, const char *argv[])
         ("ny", po::value<int>(&Ny)->required(), "Number of lattice sites in y")
         ("nz", po::value<int>(&Nz)->required(), "Number of lattice sites in z")
         ("dt", po::value<double>(&dt)->required(), "Time step used in the simulation")
+        ("sim-time", po::value<double>(&sim_time)->required(), "Simulation time")
         ("eta", po::value<double>(&eta)->default_value(eta), "shear viscosity")
+        ("eta-uv-cutoff", po::value<double>(&eta_uv_cutoff)->default_value(eta_uv_cutoff), "UV cutoff for shear viscosity")
         ("output-folder", po::value<std::string>(&output_folder)->default_value("out"), "Folder to write output files to");
 
     po::variables_map vm;
@@ -381,19 +403,19 @@ int main(int argc, const char *argv[])
 
     // Taylor-Green vortex
 
-    for (int nz = 0; nz < Nz; ++nz) {
-        for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
-                // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
-                // Ny, Nz, ...) assumes: nx slowest, nz fastest.
-                int idx = nx*Ny*Nz + ny*Nz + nz;
+    // for (int nz = 0; nz < Nz; ++nz) {
+    //     for (int ny = 0; ny < Ny; ++ny) {
+    //         for (int nx = 0; nx < Nx; ++nx) {
+    //             // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
+    //             // Ny, Nz, ...) assumes: nx slowest, nz fastest.
+    //             int idx = nx*Ny*Nz + ny*Nz + nz;
 
-                jx[idx] = sin(nx/static_cast<real_t>(Nx)*2*M_PI)*cos(ny/static_cast<real_t>(Ny)*2*M_PI)+1.0;
-                jy[idx] = -cos(nx/static_cast<real_t>(Nx)*2*M_PI)*sin(ny/static_cast<real_t>(Ny)*2*M_PI)+1.0;
-                jz[idx] = 0;
-            }
-        }
-    }
+    //             jx[idx] = sin(nx/static_cast<real_t>(Nx)*2*M_PI)*cos(ny/static_cast<real_t>(Ny)*2*M_PI)+1.0;
+    //             jy[idx] = -cos(nx/static_cast<real_t>(Nx)*2*M_PI)*sin(ny/static_cast<real_t>(Ny)*2*M_PI)+1.0;
+    //             jz[idx] = 0;
+    //         }
+    //     }
+    // }
 
     std::ofstream jx_file(output_folder + "/jx.dat");
     std::ofstream jy_file(output_folder + "/jy.dat");
@@ -422,13 +444,14 @@ int main(int argc, const char *argv[])
 
     // Thermalization
 
-    const int therm_steps = 200000;
-    const double therm_dt = 0.1;
+    const double therm_dt = 1.0;
 
     auto k_min = 2*M_PI/static_cast<real_t>(max({Nx, Ny, Nz}));
-    auto eq_time_slow = 1/(eta*k_min*k_min/mass_density);
+    auto eq_time_slow = 1/(eta_k2_dep(k_min*k_min)*k_min*k_min/mass_density);
 
-    auto therm_time = therm_steps*therm_dt;
+    auto therm_time = 5.0*eq_time_slow;
+
+    const int therm_steps = static_cast<int>(floor(therm_time/therm_dt));
 
     cout << "Relaxation time of slowest mode= " << eq_time_slow << " (k_min=" << k_min << ")" << endl;
     cout << "  Numerical thermalization time= " << therm_time << endl;
@@ -437,8 +460,15 @@ int main(int argc, const char *argv[])
     fftw_execute(plan_jy_to_jpy);
     fftw_execute(plan_jz_to_jpz);
 
+    auto therm_t = 0.0;
+
     for (int i=0; i<therm_steps; ++i) {
-        // do_diss_step(therm_dt);
+        do_diss_step(therm_dt);
+
+        cout << "t=" << therm_t << "\r";
+        cout.flush();
+
+        therm_t += therm_dt;
     }
 
     fftw_execute(plan_jpx_to_jx);
@@ -453,19 +483,19 @@ int main(int argc, const char *argv[])
 
     // Actual simulation in equilibrium state
 
-    const int n_steps = 50000;
+    auto k_max=M_PI;
+    auto eq_time_fast = 1/(eta_k2_dep(k_max*k_max)*k_max*k_max/mass_density);
 
-    auto eq_time_fast = 1/(eta*4*M_PI*M_PI/mass_density);
-
-    cout << "                          Nt*dt= " << n_steps*dt << endl;
+    cout << "                Simulation time= " << sim_time << endl;
     cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
     cout << "                             dt= " << dt << endl;
     
-    const int write_every_n_steps = 10*50;
+    const int write_every_n_steps = 50;
 
     double t = 0.0;
+    int i = 0;
 
-    for (int i=0; i<n_steps; ++i) {
+    while (t<sim_time) {
         // DISSIPATIVE STEP
 
         fftw_execute(plan_jx_to_jpx);
@@ -475,7 +505,7 @@ int main(int argc, const char *argv[])
 
         project_transverse(jpx, jpy, jpz);
         
-        // do_diss_step(dt);
+        do_diss_step(dt);
 
         // TODO Optimize
         project_transverse(jpx, jpy, jpz);
@@ -524,6 +554,7 @@ int main(int argc, const char *argv[])
         cout.flush();
 
         t += dt;
+        ++i;
 
         // cout << "Finished step " << i << "/" << n_steps << endl;
     }
