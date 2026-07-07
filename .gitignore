@@ -16,6 +16,5 @@ CMakeUserPresets.json
 sim
 
 # Output files
-out/
-processed/
 sim-*/
+obs-*/

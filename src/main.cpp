@@ -100,11 +100,12 @@ double sim_time;
 double eta = 1.0;
 double temp = 1.0;
 double mass_density = 1.0;
-double eta_uv_cutoff = 0.4*M_PI;
+double eta_uv_cutoff = 1.25;
 
 // Random number generator
 
-mt19937 mt{random_device{}()};
+unsigned int seed = random_device{}();
+mt19937 mt{seed};
 normal_distribution<> normal_dist(0, 1);
 
 /**
@@ -310,6 +311,9 @@ int main(int argc, const char *argv[])
 {
     std::string output_folder;
 
+    // Add a command line option for this
+    int write_every_n_steps = 1;
+
     po::options_description desc("Options");
     desc.add_options()
         ("help", "print help message")
@@ -318,7 +322,8 @@ int main(int argc, const char *argv[])
         ("nz", po::value<int>(&Nz)->required(), "Number of lattice sites in z")
         ("dt", po::value<double>(&dt)->required(), "Time step used in the simulation")
         ("sim-time", po::value<double>(&sim_time)->required(), "Simulation time")
-        ("eta", po::value<double>(&eta)->default_value(eta), "shear viscosity")
+        ("output-every-n-steps", po::value<int>(&write_every_n_steps)->default_value(write_every_n_steps), "Write output only every n time steps (default: 1)")
+        ("eta", po::value<double>(&eta)->default_value(eta), "Shear viscosity")
         ("eta-uv-cutoff", po::value<double>(&eta_uv_cutoff)->default_value(eta_uv_cutoff), "UV cutoff for shear viscosity")
         ("output-folder", po::value<std::string>(&output_folder), "Folder to write output files to (default: generated from simulation parameters)");
 
@@ -334,7 +339,8 @@ int main(int argc, const char *argv[])
     if (!vm.count("output-folder")) {
         std::ostringstream name;
         name << "sim-Nx" << Nx << "Ny" << Ny << "Nz" << Nz
-             << "dt" << dt << "eta" << eta << "Lam" << eta_uv_cutoff;
+             << "dt" << (dt*write_every_n_steps) << "eta" << eta << "Lam" << eta_uv_cutoff
+             << "seed" << seed;
         output_folder = name.str();
         cout << "Writing output to " << output_folder << endl;
     }
@@ -459,12 +465,12 @@ int main(int argc, const char *argv[])
 
     // Thermalization
 
-    const double therm_dt = 1.0;
-
     auto k_min = 2*M_PI/static_cast<real_t>(max({Nx, Ny, Nz}));
     auto eq_time_slow = 1/(eta_k2_dep(k_min*k_min)*k_min*k_min/mass_density);
 
     auto therm_time = 5.0*eq_time_slow;
+
+    const double therm_dt = 1.0;
 
     const int therm_steps = static_cast<int>(floor(therm_time/therm_dt));
 
@@ -505,8 +511,6 @@ int main(int argc, const char *argv[])
     cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
     cout << "                             dt= " << dt << endl;
     
-    const int write_every_n_steps = 50;
-
     double t = 0.0;
     int i = 0;
 
