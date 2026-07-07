@@ -7,6 +7,7 @@
 #include <cassert>
 #include <filesystem>
 #include <string>
+#include <sstream>
 
 #include <gsl/gsl_pow_int.h>
 #include <gsl/gsl_errno.h>
@@ -313,7 +314,7 @@ int main(int argc, const char *argv[])
         ("sim-time", po::value<double>(&sim_time)->required(), "Simulation time")
         ("eta", po::value<double>(&eta)->default_value(eta), "shear viscosity")
         ("eta-uv-cutoff", po::value<double>(&eta_uv_cutoff)->default_value(eta_uv_cutoff), "UV cutoff for shear viscosity")
-        ("output-folder", po::value<std::string>(&output_folder)->default_value("out"), "Folder to write output files to");
+        ("output-folder", po::value<std::string>(&output_folder), "Folder to write output files to (default: generated from simulation parameters)");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -322,6 +323,14 @@ int main(int argc, const char *argv[])
     if (vm.count("help")) {
         cout << desc << endl;
         return 0;
+    }
+
+    if (!vm.count("output-folder")) {
+        std::ostringstream name;
+        name << "sim-Nx" << Nx << "Ny" << Ny << "Nz" << Nz
+             << "dt" << dt << "eta" << eta << "Lam" << eta_uv_cutoff;
+        output_folder = name.str();
+        cout << "Writing output to " << output_folder << endl;
     }
 
     fs::create_directories(output_folder);

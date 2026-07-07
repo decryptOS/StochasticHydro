@@ -18,3 +18,4 @@ sim
 # Output files
 out/
 processed/
+sim-*/
