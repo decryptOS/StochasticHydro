@@ -334,6 +334,8 @@ int main(int argc, const char *argv[])
     // Add a command line option for this
     int write_every_n_steps = 1;
 
+    bool no_ideal_step = false;
+
     po::options_description desc("Options");
     desc.add_options()
         ("help", "print help message")
@@ -345,6 +347,7 @@ int main(int argc, const char *argv[])
         ("output-every-n-steps", po::value<int>(&write_every_n_steps)->default_value(write_every_n_steps), "Write output only every n time steps (default: 1)")
         ("eta", po::value<double>(&eta)->default_value(eta), "Shear viscosity")
         ("eta-uv-cutoff", po::value<double>(&eta_uv_cutoff)->default_value(eta_uv_cutoff), "UV cutoff for shear viscosity")
+        ("no-ideal-step", po::bool_switch(&no_ideal_step), "Disable the ideal step (only dissipative dynamics)")
         ("output-folder", po::value<std::string>(&output_folder), "Folder to write output files to (default: generated from simulation parameters)");
 
     po::variables_map vm;
@@ -361,6 +364,9 @@ int main(int argc, const char *argv[])
         name << "sim-Nx" << Nx << "Ny" << Ny << "Nz" << Nz
              << "dt" << (dt*write_every_n_steps) << "eta" << eta << "Lam" << eta_uv_cutoff
              << "seed" << seed;
+        if (no_ideal_step) {
+            name << "x";
+        }
         output_folder = name.str();
         cout << "Writing output to " << output_folder << endl;
     }
@@ -583,10 +589,12 @@ int main(int argc, const char *argv[])
         }
 
         // IDEAL STEP
-        int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
-        if (status != GSL_SUCCESS) {
-            fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
-            return 1;
+        if (!no_ideal_step) {
+            int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
+            if (status != GSL_SUCCESS) {
+                fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
+                return 1;
+            }
         }
 
         cout << "t=" << t << "\r";
