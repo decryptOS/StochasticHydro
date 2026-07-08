@@ -470,7 +470,7 @@ int main(int argc, const char *argv[])
 
     auto therm_time = 5.0*eq_time_slow;
 
-    const double therm_dt = 1.0;
+    const double therm_dt = therm_time/1000.0;
 
     const int therm_steps = static_cast<int>(floor(therm_time/therm_dt));
 
