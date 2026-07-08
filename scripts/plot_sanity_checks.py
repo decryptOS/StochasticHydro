@@ -31,7 +31,7 @@ FLOAT = r"[0-9.]+(?:[eE][+-]?[0-9]+)?"
 RUN_NAME_RE = re.compile(
     rf"sim-Nx(?P<nx>\d+)Ny(?P<ny>\d+)Nz(?P<nz>\d+)"
     rf"dt(?P<dt>{FLOAT})eta(?P<eta>{FLOAT})Lam(?P<lam>{FLOAT})"
-    rf"seed(?P<seed>\d+)$"
+    rf"seed(?P<seed>\d+)(?P<suffix>x?)$"
 )
 
 
