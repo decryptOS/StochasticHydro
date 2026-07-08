@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <string>
 #include <sstream>
+#include <charconv>
 
 #include <gsl/gsl_pow_int.h>
 #include <gsl/gsl_errno.h>
@@ -124,26 +125,45 @@ inline double eta_k2_dep(double p2)
     return (1+eta_reg_uv(p2))*eta;
 }
 
+// Rows are a few MB at large lattice sizes; per-value ostream formatting is
+// too slow for that. Format with the locale-free to_chars into a reusable
+// buffer (same text as ostream's default %.6g) and write each row in one go.
+vector<char> row_buf;
+
+inline void append_value(vector<char>& buf, real_t value)
+{
+    char tmp[32];
+    auto [ptr, ec] = to_chars(tmp, tmp+sizeof(tmp), value, chars_format::general, 6);
+    buf.insert(buf.end(), tmp, ptr);
+    buf.push_back(' ');
+}
+
 template <typename T>
 void write_row(ofstream& out, const span<T>& values)
 {
+    row_buf.clear();
     for (const auto& value : values) {
-        out << value << ' ';
+        append_value(row_buf, value);
     }
-    out << '\n';
+    row_buf.push_back('\n');
+    out.write(row_buf.data(), row_buf.size());
 }
 
 void write_row(ofstream& out_re, ofstream& out_im, const span<complex_t>& values)
 {
+    row_buf.clear();
     for (const auto& value : values) {
-        out_re << value.real() << ' ';
+        append_value(row_buf, value.real());
     }
-    out_re << '\n';
-    
+    row_buf.push_back('\n');
+    out_re.write(row_buf.data(), row_buf.size());
+
+    row_buf.clear();
     for (const auto& value : values) {
-        out_im << value.imag() << ' ';
+        append_value(row_buf, value.imag());
     }
-    out_im << '\n';
+    row_buf.push_back('\n');
+    out_im.write(row_buf.data(), row_buf.size());
 }
 
 void project_transverse(span<complex_t> jpx, span<complex_t> jpy, span<complex_t> jpz)
