@@ -347,6 +347,7 @@ int main(int argc, const char *argv[])
         ("output-every-n-steps", po::value<int>(&write_every_n_steps)->default_value(write_every_n_steps), "Write output only every n time steps (default: 1)")
         ("eta", po::value<double>(&eta)->default_value(eta), "Shear viscosity")
         ("eta-uv-cutoff", po::value<double>(&eta_uv_cutoff)->default_value(eta_uv_cutoff), "UV cutoff for shear viscosity")
+        ("seed", po::value<unsigned int>(&seed), "Seed for the random number generator (default: random)")
         ("no-ideal-step", po::bool_switch(&no_ideal_step), "Disable the ideal step (only dissipative dynamics)")
         ("output-folder", po::value<std::string>(&output_folder), "Folder to write output files to (default: generated from simulation parameters)");
 
@@ -357,6 +358,10 @@ int main(int argc, const char *argv[])
     if (vm.count("help")) {
         cout << desc << endl;
         return 0;
+    }
+
+    if (vm.count("seed")) {
+        mt.seed(seed);
     }
 
     if (!vm.count("output-folder")) {
