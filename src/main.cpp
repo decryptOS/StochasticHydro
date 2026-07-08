@@ -224,9 +224,13 @@ void do_diss_step(double dt)
                 auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz));
 
                 // lattice spacing a=1
-                auto ktx = sin(kx);
-                auto kty = sin(ky);
-                auto ktz = sin(kz);
+                auto ktx = 2*sin(kx/2);
+                auto kty = 2*sin(ky/2);
+                auto ktz = 2*sin(kz/2);
+
+                // auto ktx = sin(kx);
+                // auto kty = sin(ky);
+                // auto ktz = sin(kz);
 
                 auto kt2 = ktx*ktx+kty*kty+ktz*ktz;
 
@@ -491,6 +495,7 @@ int main(int argc, const char *argv[])
     };
 
     gsl_odeiv2_step *id_step = gsl_odeiv2_step_alloc(gsl_odeiv2_step_rkf45, 3*Nsites);
+    // gsl_odeiv2_step_rk2 doesn't work
 
     auto jerr_ideal_step_storage = vector<real_t>(3*Nsites, 0);
 
