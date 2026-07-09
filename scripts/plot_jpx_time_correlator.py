@@ -96,9 +96,9 @@ def main() -> None:
         sem_re = np.zeros(n_min)
         sem_im = np.zeros(n_min)
 
-    kx = np.sin(2 * np.pi * meta["nkx"] / meta["nx"])
-    ky = np.sin(2 * np.pi * meta["nky"] / meta["ny"])
-    kz = np.sin(2 * np.pi * meta["nkz"] / meta["nz"])
+    kx = 2.0*np.sin(2 * np.pi * meta["nkx"] / meta["nx"] * 0.5)
+    ky = 2.0*np.sin(2 * np.pi * meta["nky"] / meta["ny"] * 0.5)
+    kz = 2.0*np.sin(2 * np.pi * meta["nkz"] / meta["nz"] * 0.5)
     damp = eta / args.mass_density * (kx**2 + ky**2 + kz**2)
 
     nsites = meta["nx"] * meta["ny"] * meta["nz"]
