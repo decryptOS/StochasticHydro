@@ -104,9 +104,9 @@ def main() -> None:
                     label=f"{label} {name}")
 
     ax_energy.set_ylabel(r"$\sum_x \, (j_x^2+j_y^2+j_z^2)/(2\rho)$")
-    #theory = nsites * args.temp * (ndim - 1)
-    #ax_energy.axhline(theory, color="black", linestyle="--",
-    #               label=rf"$(d-1)N_s T = {theory:g}$")
+    theory = nsites * args.temp * (ndim - 1)/2
+    ax_energy.axhline(theory, color="black", linestyle="--",
+                   label=rf"$(d-1)N_s T = {theory:g}$")
     ax_energy.set_title("Total energy")
 
     ax_div.set_ylabel(r"$\sum_x \, (D_x j_x + D_y j_y + D_z j_z)^2$")
