@@ -571,7 +571,11 @@ int main(int argc, const char *argv[])
     double t = 0.0;
     int i = 0;
 
+    auto main_loop_start = chrono::steady_clock::now();
+
     while (t<sim_time) {
+        auto step_start = chrono::steady_clock::now();
+
         // DISSIPATIVE STEP
 
         fftw_execute(plan_jx_to_jpx);
@@ -628,14 +632,19 @@ int main(int argc, const char *argv[])
             }
         }
 
-        cout << "t=" << t << "\r";
-        cout.flush();
-
         t += dt;
         ++i;
 
+        chrono::duration<double> step_elapsed = chrono::steady_clock::now() - step_start;
+        cout << "t=" << t << " (" << step_elapsed.count() << "s)\r";
+        cout.flush();
+
         // cout << "Finished step " << i << "/" << n_steps << endl;
     }
+
+    chrono::duration<double> main_loop_elapsed = chrono::steady_clock::now() - main_loop_start;
+    cout << "                 Main loop time= " << main_loop_elapsed.count() << " s"
+         << " (" << (i > 0 ? main_loop_elapsed.count()/i*1e3 : 0.0) << " ms/step, " << i << " steps)" << endl;
 
     gsl_odeiv2_step_free(id_step);
 
