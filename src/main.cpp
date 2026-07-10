@@ -354,6 +354,8 @@ int main(int argc, const char *argv[])
 
     bool no_ideal_step = false;
 
+    bool no_therm = false;
+
     po::options_description desc("Options");
     desc.add_options()
         ("help", "print help message")
@@ -367,6 +369,7 @@ int main(int argc, const char *argv[])
         ("eta-uv-cutoff", po::value<double>(&eta_uv_cutoff)->default_value(eta_uv_cutoff), "UV cutoff for shear viscosity")
         ("seed", po::value<unsigned int>(&seed), "Seed for the random number generator (default: random)")
         ("no-ideal-step", po::bool_switch(&no_ideal_step), "Disable the ideal step (only dissipative dynamics)")
+        ("no-therm", po::bool_switch(&no_therm), "Disable the thermalization at the beginning")
         ("output-folder", po::value<std::string>(&output_folder), "Folder to write output files to (default: generated from simulation parameters)");
 
     po::variables_map vm;
@@ -527,30 +530,34 @@ int main(int argc, const char *argv[])
 
     cout << "Relaxation time of slowest mode= " << eq_time_slow << " (k_min=" << k_min << ")" << endl;
     cout << "  Numerical thermalization time= " << therm_time << endl;
+    
+    if (no_therm) {
+        cout << "Thermalization disabled (--no-therm)" << endl;
+    } else {
+        fftw_execute(plan_jx_to_jpx);
+        fftw_execute(plan_jy_to_jpy);
+        fftw_execute(plan_jz_to_jpz);
 
-    fftw_execute(plan_jx_to_jpx);
-    fftw_execute(plan_jy_to_jpy);
-    fftw_execute(plan_jz_to_jpz);
+        auto therm_t = 0.0;
 
-    auto therm_t = 0.0;
+        for (int i=0; i<therm_steps; ++i) {
+            do_diss_step(therm_dt);
 
-    for (int i=0; i<therm_steps; ++i) {
-        do_diss_step(therm_dt);
+            cout << "t=" << therm_t << "\r";
+            cout.flush();
 
-        cout << "t=" << therm_t << "\r";
-        cout.flush();
+            therm_t += therm_dt;
+        }
 
-        therm_t += therm_dt;
-    }
+        fftw_execute(plan_jpx_to_jx);
+        fftw_execute(plan_jpy_to_jy);
+        fftw_execute(plan_jpz_to_jz);
 
-    fftw_execute(plan_jpx_to_jx);
-    fftw_execute(plan_jpy_to_jy);
-    fftw_execute(plan_jpz_to_jz);
-
-    for (int n = 0; n < Nsites; ++n) {
-        jx[n] /= Nsites;
-        jy[n] /= Nsites;
-        jz[n] /= Nsites;
+        for (int n = 0; n < Nsites; ++n) {
+            jx[n] /= Nsites;
+            jy[n] /= Nsites;
+            jz[n] /= Nsites;
+        }
     }
 
     // Actual simulation in equilibrium state
