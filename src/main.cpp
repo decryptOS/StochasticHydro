@@ -9,6 +9,7 @@
 #include <string>
 #include <sstream>
 #include <charconv>
+#include <chrono>
 
 #include <gsl/gsl_pow_int.h>
 #include <gsl/gsl_errno.h>
@@ -335,6 +336,8 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
 
 int main(int argc, const char *argv[])
 {
+    auto wall_clock_start = chrono::steady_clock::now();
+
     std::string output_folder;
 
     // Add a command line option for this
@@ -643,6 +646,9 @@ int main(int argc, const char *argv[])
     fftw_destroy_plan(plan_lpx_to_lx);
     fftw_destroy_plan(plan_lpy_to_ly);
     fftw_destroy_plan(plan_lpz_to_lz);
+
+    chrono::duration<double> wall_clock_elapsed = chrono::steady_clock::now() - wall_clock_start;
+    cout << "                 Total run time= " << wall_clock_elapsed.count() << "s" << endl;
 
     return 0;
 }
