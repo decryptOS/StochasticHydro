@@ -371,12 +371,13 @@ int main(int argc, const char *argv[])
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
-    po::notify(vm);
 
     if (vm.count("help")) {
         cout << desc << endl;
         return 0;
     }
+
+    po::notify(vm);
 
     if (vm.count("seed")) {
         mt.seed(seed);
