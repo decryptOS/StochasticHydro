@@ -528,8 +528,14 @@ int main(int argc, const char *argv[])
 
     const int therm_steps = static_cast<int>(floor(therm_time/therm_dt));
 
+    auto k_max=M_PI;
+    auto eq_time_fast = 1/(eta_k2_dep(k_max*k_max)*k_max*k_max/mass_density);
+
     cout << "Relaxation time of slowest mode= " << eq_time_slow << " (k_min=" << k_min << ")" << endl;
     cout << "  Numerical thermalization time= " << therm_time << endl;
+    cout << "                Simulation time= " << sim_time << endl;
+    cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
+    cout << "                             dt= " << dt << endl;
     
     if (no_therm) {
         cout << "Thermalization disabled (--no-therm)" << endl;
@@ -562,13 +568,6 @@ int main(int argc, const char *argv[])
 
     // Actual simulation in equilibrium state
 
-    auto k_max=M_PI;
-    auto eq_time_fast = 1/(eta_k2_dep(k_max*k_max)*k_max*k_max/mass_density);
-
-    cout << "                Simulation time= " << sim_time << endl;
-    cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
-    cout << "                             dt= " << dt << endl;
-    
     double t = 0.0;
     int i = 0;
 
