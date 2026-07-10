@@ -173,9 +173,9 @@ void project_transverse(span<complex_t> jpx, span<complex_t> jpy, span<complex_t
 {
     int Nzh = Nz/2+1;
 
-    for (int nz = 0; nz < Nzh; ++nz) {
+    for (int nx = 0; nx < Nx; ++nx) {
         for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
+            for (int nz = 0; nz < Nzh; ++nz) {
                 auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx));
                 auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny));
                 auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz));
@@ -219,9 +219,9 @@ void do_diss_step(double dt)
 
     int Nzh = Nz/2+1;
 
-    for (int nz = 0; nz < Nzh; ++nz) {
+    for (int nx = 0; nx < Nx; ++nx) {
         for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
+            for (int nz = 0; nz < Nzh; ++nz) {
                 auto kx = 2*M_PI*(nx/static_cast<real_t>(Nx));
                 auto ky = 2*M_PI*(ny/static_cast<real_t>(Ny));
                 auto kz = 2*M_PI*(nz/static_cast<real_t>(Nz));
@@ -270,21 +270,30 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
     // printf("%d %d\n", -1%8, (-1)&(8-1));
     // exit(0);
 
-    for (int nz = 0; nz < Nz; ++nz) {
+    //#pragma omp parallel for collapse(2)
+    for (int nx = 0; nx < Nx; ++nx) {
         for (int ny = 0; ny < Ny; ++ny) {
-            for (int nx = 0; nx < Nx; ++nx) {
+            int row = nx*Ny*Nz + ny*Nz;
+
+            int row_xm = mod(nx-1, Nx)*Ny*Nz + ny*Nz;
+            int row_xp = mod(nx+1, Nx)*Ny*Nz + ny*Nz;
+
+            int row_ym = nx*Ny*Nz + mod(ny-1, Ny)*Nz;
+            int row_yp = nx*Ny*Nz + mod(ny+1, Ny)*Nz;
+
+            for (int nz = 0; nz < Nz; ++nz) {
                 // Real-space layout must match what fftw_plan_dft_r2c_3d(Nx,
                 // Ny, Nz, ...) assumes: nx slowest, nz fastest.
-                int idx = nx*Ny*Nz + ny*Nz + nz;
+                int idx = row + nz;
 
-                int idx_xm = mod(nx-1, Nx)*Ny*Nz + ny*Nz + nz;
-                int idx_xp = mod(nx+1, Nx)*Ny*Nz + ny*Nz + nz;
+                int idx_xm = row_xm + nz;
+                int idx_xp = row_xp + nz;
 
-                int idx_ym = nx*Ny*Nz + mod(ny-1, Ny)*Nz + nz;
-                int idx_yp = nx*Ny*Nz + mod(ny+1, Ny)*Nz + nz;
+                int idx_ym = row_ym + nz;
+                int idx_yp = row_yp + nz;
 
-                int idx_zm = nx*Ny*Nz + ny*Nz + mod(nz-1, Nz);
-                int idx_zp = nx*Ny*Nz + ny*Nz + mod(nz+1, Nz);
+                int idx_zm = row + mod(nz-1, Nz);
+                int idx_zp = row + mod(nz+1, Nz);
 
                 // no static regulator:
                 auto vx = jx[idx]/mass_density;
@@ -292,25 +301,25 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
                 auto vz = jz[idx]/mass_density;
 
                 // central differences
-                auto Dx_jx = (jx[idx_xp] - jx[idx_xm])/2.0;
+                //auto Dx_jx = (jx[idx_xp] - jx[idx_xm])/2.0;
                 auto Dy_jx = (jx[idx_yp] - jx[idx_ym])/2.0;
                 auto Dz_jx = (jx[idx_zp] - jx[idx_zm])/2.0;
 
                 auto Dx_jy = (jy[idx_xp] - jy[idx_xm])/2.0;
-                auto Dy_jy = (jy[idx_yp] - jy[idx_ym])/2.0;
+                //auto Dy_jy = (jy[idx_yp] - jy[idx_ym])/2.0;
                 auto Dz_jy = (jy[idx_zp] - jy[idx_zm])/2.0;
 
                 auto Dx_jz = (jz[idx_xp] - jz[idx_xm])/2.0;
                 auto Dy_jz = (jz[idx_yp] - jz[idx_ym])/2.0;
-                auto Dz_jz = (jz[idx_zp] - jz[idx_zm])/2.0;
+                //auto Dz_jz = (jz[idx_zp] - jz[idx_zm])/2.0;
 
                 // if(rand()%Nsites==0) {
                 // cout<<(Dx_jx+Dy_jy+Dz_jz)<<endl;    
                 // }
 
-                djxdt[idx] = -vx*( Dx_jx - Dx_jx ) -vy*( Dy_jx - Dx_jy ) -vz*( Dz_jx - Dx_jz );
-                djydt[idx] = -vx*( Dx_jy - Dy_jx ) -vy*( Dy_jy - Dy_jy ) -vz*( Dz_jy - Dy_jz );
-                djzdt[idx] = -vx*( Dx_jz - Dz_jx ) -vy*( Dy_jz - Dz_jy ) -vz*( Dz_jz - Dz_jz );
+                djxdt[idx] = -vy*( Dy_jx - Dx_jy ) -vz*( Dz_jx - Dx_jz );
+                djydt[idx] = -vx*( Dx_jy - Dy_jx ) -vz*( Dz_jy - Dy_jz );
+                djzdt[idx] = -vx*( Dx_jz - Dz_jx ) -vy*( Dy_jz - Dz_jy );
             }
         }
     }
