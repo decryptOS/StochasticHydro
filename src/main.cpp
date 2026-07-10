@@ -117,7 +117,9 @@ normal_distribution<> normal_dist(0, 1);
  */
 inline double eta_reg_uv(double p2)
 {
-    return gsl_pow_2(p2/(eta_uv_cutoff*eta_uv_cutoff));
+    double x = p2/(eta_uv_cutoff*eta_uv_cutoff);
+    return x > 1 ? x-1 : 0;
+    //return gsl_pow_2(p2/(eta_uv_cutoff*eta_uv_cutoff));
 }
 
 inline double eta_k2_dep(double p2)
