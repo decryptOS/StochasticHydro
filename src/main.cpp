@@ -551,6 +551,9 @@ int main(int argc, const char *argv[])
     if (no_therm) {
         cout << "Thermalization disabled (--no-therm)" << endl;
     } else {
+        auto therm_start = chrono::steady_clock::now();
+        cout << "Thermalizing (" << therm_steps << " steps)..." << endl;
+
         fftw_execute(plan_j_to_jp);
 
         auto therm_t = 0.0;
@@ -558,8 +561,8 @@ int main(int argc, const char *argv[])
         for (int i=0; i<therm_steps; ++i) {
             do_diss_step(therm_dt);
 
-            cout << "t=" << therm_t << "\r";
-            cout.flush();
+            // cout << "t=" << therm_t << "\r";
+            // cout.flush();
 
             therm_t += therm_dt;
         }
@@ -571,12 +574,17 @@ int main(int argc, const char *argv[])
             jy[n] /= Nsites;
             jz[n] /= Nsites;
         }
+
+        chrono::duration<double> therm_elapsed = chrono::steady_clock::now() - therm_start;
+        cout << "Finished (took " << therm_elapsed.count() << " s)" << endl;
     }
 
     // Actual simulation in equilibrium state
 
     double t = 0.0;
     int i = 0;
+
+    int n_steps = static_cast<int>(ceil(sim_time/dt));
 
     auto main_loop_start = chrono::steady_clock::now();
 
@@ -638,9 +646,14 @@ int main(int argc, const char *argv[])
         t += dt;
         ++i;
 
-        chrono::duration<double> step_elapsed = chrono::steady_clock::now() - step_start;
-        cout << "t=" << t << " (" << step_elapsed.count() << "s)\r";
-        cout.flush();
+        if (i%write_every_n_steps == 0) {
+
+            chrono::duration<double> step_elapsed = chrono::steady_clock::now() - step_start;
+            chrono::duration<double> main_loop_elapsed = chrono::steady_clock::now() - main_loop_start;
+            cout << i << "/" << n_steps << " steps (runtime: " << main_loop_elapsed.count() << " s, last step took " << step_elapsed.count()*1e3 << " ms)" << endl;
+            // cout.flush();
+
+        }
 
         // cout << "Finished step " << i << "/" << n_steps << endl;
     }
