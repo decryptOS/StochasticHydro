@@ -17,6 +17,8 @@
 
 #include <fftw3.h>
 
+#include <omp.h>
+
 #include <boost/program_options.hpp>
 #include <boost/assert.hpp>
 
@@ -27,6 +29,8 @@ using namespace std;
 
 using real_t = double;
 using complex_t = complex<real_t>;
+
+constexpr size_t NsitesOMPThreshold = 256*256;  // minimum number of lattice sites to use OpenMP parallelization
 
 // Momentum density
 
@@ -42,13 +46,11 @@ span<complex_t> jpx;
 span<complex_t> jpy;
 span<complex_t> jpz;
 
-fftw_plan plan_jx_to_jpx;
-fftw_plan plan_jy_to_jpy;
-fftw_plan plan_jz_to_jpz;
+// All transforms are batched (howmany=3): one plan transforms the x, y and z
+// components in a single threaded fftw_execute call.
 
-fftw_plan plan_jpx_to_jx;
-fftw_plan plan_jpy_to_jy;
-fftw_plan plan_jpz_to_jz;
+fftw_plan plan_j_to_jp;
+fftw_plan plan_jp_to_j;
 
 // Time derivative of momentum density
 
@@ -64,31 +66,24 @@ span<complex_t> djpxdt;
 span<complex_t> djpydt;
 span<complex_t> djpzdt;
 
-fftw_plan plan_djxdt_to_djpxdt;
-fftw_plan plan_djydt_to_djpydt;
-fftw_plan plan_djzdt_to_djpzdt;
-
-fftw_plan plan_djpxdt_to_djxdt;
-fftw_plan plan_djpydt_to_djydt;
-fftw_plan plan_djpzdt_to_djzdt;
+fftw_plan plan_djdt_to_djpdt;
+fftw_plan plan_djpdt_to_djdt;
 
 // Langevin noise
 
-vector<real_t> lx;
-vector<real_t> ly;
-vector<real_t> lz;
+vector<real_t> l_storage;
 
-vector<complex_t> lpx;
-vector<complex_t> lpy;
-vector<complex_t> lpz;
+span<real_t> lx;
+span<real_t> ly;
+span<real_t> lz;
 
-fftw_plan plan_lx_to_lpx;
-fftw_plan plan_ly_to_lpy;
-fftw_plan plan_lz_to_lpz;
+vector<complex_t> lp_storage;
 
-fftw_plan plan_lpx_to_lx;
-fftw_plan plan_lpy_to_ly;
-fftw_plan plan_lpz_to_lz;
+span<complex_t> lpx;
+span<complex_t> lpy;
+span<complex_t> lpz;
+
+fftw_plan plan_l_to_lp;
 
 int Nx;
 int Ny;
@@ -173,6 +168,7 @@ void project_transverse(span<complex_t> jpx, span<complex_t> jpy, span<complex_t
 {
     int Nzh = Nz/2+1;
 
+    #pragma omp parallel for collapse(2) if(Nsites>=NsitesOMPThreshold)
     for (int nx = 0; nx < Nx; ++nx) {
         for (int ny = 0; ny < Ny; ++ny) {
             for (int nz = 0; nz < Nzh; ++nz) {
@@ -213,12 +209,11 @@ void do_diss_step(double dt)
         lz[i] = normal_dist(mt);
     }
 
-    fftw_execute(plan_lx_to_lpx);
-    fftw_execute(plan_ly_to_lpy);
-    fftw_execute(plan_lz_to_lpz);
+    fftw_execute(plan_l_to_lp);
 
     int Nzh = Nz/2+1;
 
+    #pragma omp parallel for collapse(2) if(Nsites>=NsitesOMPThreshold)
     for (int nx = 0; nx < Nx; ++nx) {
         for (int ny = 0; ny < Ny; ++ny) {
             for (int nz = 0; nz < Nzh; ++nz) {
@@ -270,7 +265,7 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
     // printf("%d %d\n", -1%8, (-1)&(8-1));
     // exit(0);
 
-    //#pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(2) if(Nsites>=NsitesOMPThreshold)
     for (int nx = 0; nx < Nx; ++nx) {
         for (int ny = 0; ny < Ny; ++ny) {
             int row = nx*Ny*Nz + ny*Nz;
@@ -324,15 +319,11 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
         }
     }
 
-    fftw_execute(plan_djxdt_to_djpxdt);
-    fftw_execute(plan_djydt_to_djpydt);
-    fftw_execute(plan_djzdt_to_djpzdt);
+    fftw_execute(plan_djdt_to_djpdt);
 
     project_transverse(djpxdt, djpydt, djpzdt);
 
-    fftw_execute(plan_djpxdt_to_djxdt);   // destroys djp*, recomputed next call
-    fftw_execute(plan_djpydt_to_djydt);
-    fftw_execute(plan_djpzdt_to_djzdt);
+    fftw_execute(plan_djpdt_to_djdt);   // destroys djp*, recomputed next call
 
     for (int n = 0; n < Nsites; ++n) {
         dydt[n+0*Nsites] = djxdt[n]/Nsites;
@@ -421,13 +412,24 @@ int main(int argc, const char *argv[])
     jpy = span<complex_t>(jp_storage.data()+1*Np, Np); // The last dimension is cut in half + 1
     jpz = span<complex_t>(jp_storage.data()+2*Np, Np); // The last dimension is cut in half + 1
 
-    plan_jx_to_jpx = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &jx[0], reinterpret_cast<fftw_complex *>(&jpx[0]), FFTW_ESTIMATE);
-    plan_jy_to_jpy = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &jy[0], reinterpret_cast<fftw_complex *>(&jpy[0]), FFTW_ESTIMATE);
-    plan_jz_to_jpz = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &jz[0], reinterpret_cast<fftw_complex *>(&jpz[0]), FFTW_ESTIMATE);
-    
-    plan_jpx_to_jx = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&jpx[0]), &jx[0], FFTW_ESTIMATE);
-    plan_jpy_to_jy = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&jpy[0]), &jy[0], FFTW_ESTIMATE);
-    plan_jpz_to_jz = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&jpz[0]), &jz[0], FFTW_ESTIMATE);
+    // Threaded FFTW: every batched plan below runs on all available cores.
+    fftw_init_threads();
+    fftw_plan_with_nthreads(omp_get_max_threads());
+
+    const int fft_dims[3] = {Nx, Ny, Nz};
+
+    // NOTE: FFTW_MEASURE overwrites the arrays while planning, so all fields
+    // must be initialized only after the plans below have been created.
+
+    plan_j_to_jp = fftw_plan_many_dft_r2c(3, fft_dims, 3,
+        j_storage.data(), nullptr, 1, Nsites,
+        reinterpret_cast<fftw_complex *>(jp_storage.data()), nullptr, 1, Np,
+        FFTW_MEASURE);
+
+    plan_jp_to_j = fftw_plan_many_dft_c2r(3, fft_dims, 3,
+        reinterpret_cast<fftw_complex *>(jp_storage.data()), nullptr, 1, Np,
+        j_storage.data(), nullptr, 1, Nsites,
+        FFTW_MEASURE);
 
     // Time derivative of momentum density
 
@@ -441,31 +443,34 @@ int main(int argc, const char *argv[])
     djpydt = span<complex_t>(djpdt_storage.data()+1*Np, Np);
     djpzdt = span<complex_t>(djpdt_storage.data()+2*Np, Np);
 
-    plan_djxdt_to_djpxdt = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &djxdt[0], reinterpret_cast<fftw_complex *>(&djpxdt[0]), FFTW_ESTIMATE);
-    plan_djydt_to_djpydt = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &djydt[0], reinterpret_cast<fftw_complex *>(&djpydt[0]), FFTW_ESTIMATE);
-    plan_djzdt_to_djpzdt = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &djzdt[0], reinterpret_cast<fftw_complex *>(&djpzdt[0]), FFTW_ESTIMATE);
-    
-    plan_djpxdt_to_djxdt = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&djpxdt[0]), &djxdt[0], FFTW_ESTIMATE);
-    plan_djpydt_to_djydt = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&djpydt[0]), &djydt[0], FFTW_ESTIMATE);
-    plan_djpzdt_to_djzdt = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&djpzdt[0]), &djzdt[0], FFTW_ESTIMATE);
+    plan_djdt_to_djpdt = fftw_plan_many_dft_r2c(3, fft_dims, 3,
+        djdt_storage.data(), nullptr, 1, Nsites,
+        reinterpret_cast<fftw_complex *>(djpdt_storage.data()), nullptr, 1, Np,
+        FFTW_MEASURE);
+
+    plan_djpdt_to_djdt = fftw_plan_many_dft_c2r(3, fft_dims, 3,
+        reinterpret_cast<fftw_complex *>(djpdt_storage.data()), nullptr, 1, Np,
+        djdt_storage.data(), nullptr, 1, Nsites,
+        FFTW_MEASURE);
 
     // Noise
 
-    lx = std::vector<real_t>(Nsites, 0);
-    ly = std::vector<real_t>(Nsites, 0);
-    lz = std::vector<real_t>(Nsites, 0);
-    
-    lpx = std::vector<complex_t>(Np, complex_t{0, 0}); // The last dimension is cut in half + 1
-    lpy = std::vector<complex_t>(Np, complex_t{0, 0}); // The last dimension is cut in half + 1
-    lpz = std::vector<complex_t>(Np, complex_t{0, 0}); // The last dimension is cut in half + 1
+    l_storage = vector<real_t>(3*Nsites, 0);
 
-    plan_lx_to_lpx = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &lx[0], reinterpret_cast<fftw_complex *>(&lpx[0]), FFTW_ESTIMATE);
-    plan_ly_to_lpy = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &ly[0], reinterpret_cast<fftw_complex *>(&lpy[0]), FFTW_ESTIMATE);
-    plan_lz_to_lpz = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, &lz[0], reinterpret_cast<fftw_complex *>(&lpz[0]), FFTW_ESTIMATE);
-    
-    plan_lpx_to_lx = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&lpx[0]), &lx[0], FFTW_ESTIMATE);
-    plan_lpy_to_ly = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&lpy[0]), &ly[0], FFTW_ESTIMATE);
-    plan_lpz_to_lz = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, reinterpret_cast<fftw_complex *>(&lpz[0]), &lz[0], FFTW_ESTIMATE);
+    lx = span<real_t>(l_storage.data()+0*Nsites, Nsites);
+    ly = span<real_t>(l_storage.data()+1*Nsites, Nsites);
+    lz = span<real_t>(l_storage.data()+2*Nsites, Nsites);
+
+    lp_storage = vector<complex_t>(3*Np, complex_t{0, 0}); // The last dimension is cut in half + 1
+
+    lpx = span<complex_t>(lp_storage.data()+0*Np, Np);
+    lpy = span<complex_t>(lp_storage.data()+1*Np, Np);
+    lpz = span<complex_t>(lp_storage.data()+2*Np, Np);
+
+    plan_l_to_lp = fftw_plan_many_dft_r2c(3, fft_dims, 3,
+        l_storage.data(), nullptr, 1, Nsites,
+        reinterpret_cast<fftw_complex *>(lp_storage.data()), nullptr, 1, Np,
+        FFTW_MEASURE);
 
     // Cold start
 
@@ -540,9 +545,7 @@ int main(int argc, const char *argv[])
     if (no_therm) {
         cout << "Thermalization disabled (--no-therm)" << endl;
     } else {
-        fftw_execute(plan_jx_to_jpx);
-        fftw_execute(plan_jy_to_jpy);
-        fftw_execute(plan_jz_to_jpz);
+        fftw_execute(plan_j_to_jp);
 
         auto therm_t = 0.0;
 
@@ -555,9 +558,7 @@ int main(int argc, const char *argv[])
             therm_t += therm_dt;
         }
 
-        fftw_execute(plan_jpx_to_jx);
-        fftw_execute(plan_jpy_to_jy);
-        fftw_execute(plan_jpz_to_jz);
+        fftw_execute(plan_jp_to_j);
 
         for (int n = 0; n < Nsites; ++n) {
             jx[n] /= Nsites;
@@ -578,9 +579,7 @@ int main(int argc, const char *argv[])
 
         // DISSIPATIVE STEP
 
-        fftw_execute(plan_jx_to_jpx);
-        fftw_execute(plan_jy_to_jpy);
-        fftw_execute(plan_jz_to_jpz);
+        fftw_execute(plan_j_to_jp);
         // JX IS DESTROYED
 
         project_transverse(jpx, jpy, jpz);
@@ -602,9 +601,7 @@ int main(int argc, const char *argv[])
 
         // HERE WE SHOULD READ OUT JX, JY, JZ
 
-        fftw_execute(plan_jpx_to_jx);
-        fftw_execute(plan_jpy_to_jy);
-        fftw_execute(plan_jpz_to_jz);
+        fftw_execute(plan_jp_to_j);
         // JP IS DESTROYED
 
         for (int n = 0; n < Nsites; ++n) {
@@ -648,29 +645,15 @@ int main(int argc, const char *argv[])
 
     gsl_odeiv2_step_free(id_step);
 
-    fftw_destroy_plan(plan_jx_to_jpx);
-    fftw_destroy_plan(plan_jy_to_jpy);
-    fftw_destroy_plan(plan_jz_to_jpz);
+    fftw_destroy_plan(plan_j_to_jp);
+    fftw_destroy_plan(plan_jp_to_j);
 
-    fftw_destroy_plan(plan_jpx_to_jx);
-    fftw_destroy_plan(plan_jpy_to_jy);
-    fftw_destroy_plan(plan_jpz_to_jz);
+    fftw_destroy_plan(plan_djdt_to_djpdt);
+    fftw_destroy_plan(plan_djpdt_to_djdt);
 
-    fftw_destroy_plan(plan_djxdt_to_djpxdt);
-    fftw_destroy_plan(plan_djydt_to_djpydt);
-    fftw_destroy_plan(plan_djzdt_to_djpzdt);
+    fftw_destroy_plan(plan_l_to_lp);
 
-    fftw_destroy_plan(plan_djpxdt_to_djxdt);
-    fftw_destroy_plan(plan_djpydt_to_djydt);
-    fftw_destroy_plan(plan_djpzdt_to_djzdt);
-
-    fftw_destroy_plan(plan_lx_to_lpx);
-    fftw_destroy_plan(plan_ly_to_lpy);
-    fftw_destroy_plan(plan_lz_to_lpz);
-
-    fftw_destroy_plan(plan_lpx_to_lx);
-    fftw_destroy_plan(plan_lpy_to_ly);
-    fftw_destroy_plan(plan_lpz_to_lz);
+    fftw_cleanup_threads();
 
     chrono::duration<double> wall_clock_elapsed = chrono::steady_clock::now() - wall_clock_start;
     cout << "                 Total run time= " << wall_clock_elapsed.count() << "s" << endl;
