@@ -391,7 +391,17 @@ int main(int argc, const char *argv[])
 
     fs::create_directories(output_folder);
 
+    // Threaded FFTW: every batched plan below runs on all available cores.
+    fftw_init_threads();
+    fftw_plan_with_nthreads(omp_get_max_threads());
+
     Nsites = Nx*Ny*Nz;
+    if (Nsites>=NsitesOMPThreshold) {
+        cout << "Using OpenMP in for loops" << endl;
+    }
+
+    cout << "OpenMP/FFTW threads: " << omp_get_max_threads()
+        << " (of " << omp_get_num_procs() << " logical cores)" << endl;
 
     //WARNING:
 //The fftw_plan_dft_c2r function destroys (overwrites) its input array (out) during execution to save memory.
@@ -411,10 +421,6 @@ int main(int argc, const char *argv[])
     jpx = span<complex_t>(jp_storage.data()+0*Np, Np); // The last dimension is cut in half + 1
     jpy = span<complex_t>(jp_storage.data()+1*Np, Np); // The last dimension is cut in half + 1
     jpz = span<complex_t>(jp_storage.data()+2*Np, Np); // The last dimension is cut in half + 1
-
-    // Threaded FFTW: every batched plan below runs on all available cores.
-    fftw_init_threads();
-    fftw_plan_with_nthreads(omp_get_max_threads());
 
     const int fft_dims[3] = {Nx, Ny, Nz};
 
