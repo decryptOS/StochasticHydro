@@ -99,11 +99,26 @@ double temp = 1.0;
 double mass_density = 1.0;
 double eta_uv_cutoff = 1.25;
 
-// Random number generator
+// Random number generators
+//
+// A fixed number of independent streams, each responsible for a contiguous
+// block of lattice sites, so the noise can be generated in parallel while a
+// given seed still produces the same realization for any number of threads.
+
+constexpr int NRngStreams = 768;
 
 unsigned int seed = random_device{}();
-mt19937 mt{seed};
-normal_distribution<> normal_dist(0, 1);
+vector<mt19937> rng_streams;
+
+void init_rng_streams()
+{
+    rng_streams.clear();
+    rng_streams.reserve(NRngStreams);
+    for (unsigned int c = 0; c < NRngStreams; ++c) {
+        seed_seq seq{seed, c};
+        rng_streams.emplace_back(seq);
+    }
+}
 
 /**
  * UV regulator for shear viscosity
@@ -203,10 +218,19 @@ void project_transverse(span<complex_t> jpx, span<complex_t> jpy, span<complex_t
 
 void do_diss_step(double dt)
 {
-    for (int i=0; i<Nsites; ++i) {
-        lx[i] = normal_dist(mt);
-        ly[i] = normal_dist(mt);
-        lz[i] = normal_dist(mt);
+    #pragma omp parallel for schedule(static) if(Nsites>=NsitesOMPThreshold)
+    for (int c = 0; c < NRngStreams; ++c) {
+        auto& rng = rng_streams[c];
+        normal_distribution<> dist(0, 1);
+
+        int begin = static_cast<int>(static_cast<long long>(Nsites)*c/NRngStreams);
+        int end   = static_cast<int>(static_cast<long long>(Nsites)*(c+1)/NRngStreams);
+
+        for (int i=begin; i<end; ++i) {
+            lx[i] = dist(rng);
+            ly[i] = dist(rng);
+            lz[i] = dist(rng);
+        }
     }
 
     fftw_execute(plan_l_to_lp);
@@ -325,6 +349,7 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
 
     fftw_execute(plan_djpdt_to_djdt);   // destroys djp*, recomputed next call
 
+    #pragma omp parallel for if(Nsites>=NsitesOMPThreshold)
     for (int n = 0; n < Nsites; ++n) {
         dydt[n+0*Nsites] = djxdt[n]/Nsites;
         dydt[n+1*Nsites] = djydt[n]/Nsites;
@@ -373,9 +398,7 @@ int main(int argc, const char *argv[])
 
     po::notify(vm);
 
-    if (vm.count("seed")) {
-        mt.seed(seed);
-    }
+    init_rng_streams();
 
     if (!vm.count("output-folder")) {
         std::ostringstream name;
@@ -569,6 +592,7 @@ int main(int argc, const char *argv[])
 
         fftw_execute(plan_jp_to_j);
 
+        #pragma omp parallel for if(Nsites>=NsitesOMPThreshold)
         for (int n = 0; n < Nsites; ++n) {
             jx[n] /= Nsites;
             jy[n] /= Nsites;
@@ -618,6 +642,7 @@ int main(int argc, const char *argv[])
         fftw_execute(plan_jp_to_j);
         // JP IS DESTROYED
 
+        #pragma omp parallel for if(Nsites>=NsitesOMPThreshold)
         for (int n = 0; n < Nsites; ++n) {
             jx[n] /= Nsites;
             jy[n] /= Nsites;
