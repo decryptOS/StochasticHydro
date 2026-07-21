@@ -13,6 +13,7 @@
 
 #include <gsl/gsl_pow_int.h>
 #include <gsl/gsl_errno.h>
+#include <gsl/gsl_odeiv2.h>
 
 #include <fftw3.h>
 
@@ -20,8 +21,6 @@
 
 #include <boost/program_options.hpp>
 #include <boost/assert.hpp>
-#include <boost/numeric/odeint.hpp>
-#include <boost/numeric/odeint/external/openmp/openmp.hpp>
 
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
@@ -360,35 +359,6 @@ int djdt_ideal(double t, const double y[], double dydt[], void *params)
     return GSL_SUCCESS;
 }
 
-// Ideal-step integrator: Boost.Odeint Runge-Kutta Cash-Karp 5(4), the same
-// embedded RK45 family as GSL's rkf45 (agrees with it to machine precision at
-// the step sizes used here). gsl_odeiv2 runs its stage-combination loops
-// serially with no way to hook in threading, which dominated the step time on
-// many-core machines; odeint's openmp_range_algebra runs them under OpenMP.
-// The parallel algebra is elementwise with static partitioning (no
-// reductions), so results are independent of the number of threads.
-
-namespace odeint = boost::numeric::odeint;
-
-void djdt_rhs(const vector<real_t>& y, vector<real_t>& dydt, double t)
-{
-    djdt_ideal(t, y.data(), dydt.data(), nullptr);
-}
-
-odeint::runge_kutta_cash_karp54<vector<real_t>, real_t, vector<real_t>, real_t,
-    odeint::range_algebra> ideal_stepper_serial;
-odeint::runge_kutta_cash_karp54<vector<real_t>, real_t, vector<real_t>, real_t,
-    odeint::openmp_range_algebra> ideal_stepper_omp;
-
-void do_ideal_step(double t, double h)
-{
-    if (Nsites >= NsitesOMPThreshold) {
-        ideal_stepper_omp.do_step(djdt_rhs, j_storage, t, h);
-    } else {
-        ideal_stepper_serial.do_step(djdt_rhs, j_storage, t, h);
-    }
-}
-
 int main(int argc, const char *argv[])
 {
     auto wall_clock_start = chrono::steady_clock::now();
@@ -567,6 +537,20 @@ int main(int argc, const char *argv[])
     std::ofstream jpy_im_file(output_folder + "/jpy_im.dat");
     std::ofstream jpz_im_file(output_folder + "/jpz_im.dat");
 
+    // Setup Runge-Kutta method for ideal step
+
+    gsl_odeiv2_system sys {
+        djdt_ideal,
+        nullptr,
+        static_cast<size_t>(3*Nsites),
+        nullptr
+    };
+
+    gsl_odeiv2_step *id_step = gsl_odeiv2_step_alloc(gsl_odeiv2_step_rkf45, 3*Nsites);
+    // gsl_odeiv2_step_rk2 doesn't work
+
+    auto jerr_ideal_step_storage = vector<real_t>(3*Nsites, 0);
+
     // Thermalization
 
     auto k_min = 2*M_PI/static_cast<real_t>(max({Nx, Ny, Nz}));
@@ -677,7 +661,11 @@ int main(int argc, const char *argv[])
 
         // IDEAL STEP
         if (!no_ideal_step) {
-            do_ideal_step(t, dt);
+            int status = gsl_odeiv2_step_apply(id_step, t, dt, &j_storage[0], &jerr_ideal_step_storage[0], nullptr, nullptr, &sys);
+            if (status != GSL_SUCCESS) {
+                fprintf(stderr, "Ideal step failed: %s\n", gsl_strerror(status));
+                return 1;
+            }
         }
 
         t += dt;
@@ -698,6 +686,8 @@ int main(int argc, const char *argv[])
     chrono::duration<double> main_loop_elapsed = chrono::steady_clock::now() - main_loop_start;
     cout << "                 Main loop time= " << main_loop_elapsed.count() << " s"
          << " (" << (i > 0 ? main_loop_elapsed.count()/i*1e3 : 0.0) << " ms/step, " << i << " steps)" << endl;
+
+    gsl_odeiv2_step_free(id_step);
 
     fftw_destroy_plan(plan_j_to_jp);
     fftw_destroy_plan(plan_jp_to_j);
