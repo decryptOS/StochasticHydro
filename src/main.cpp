@@ -414,6 +414,14 @@ int main(int argc, const char *argv[])
 
     fs::create_directories(output_folder);
 
+    if (no_therm) {
+        cout << "Thermalization disabled (--no-therm)" << endl;
+    }
+
+    if (no_ideal_step) {
+        cout << "Ideal step disabled (--no-ideal-step)" << endl;
+    }
+
     // Threaded FFTW: every batched plan below runs on all available cores.
     fftw_init_threads();
     fftw_plan_with_nthreads(omp_get_max_threads());
@@ -571,9 +579,7 @@ int main(int argc, const char *argv[])
     cout << "Relaxation time of fastest mode= " << eq_time_fast << endl;
     cout << "                             dt= " << dt << endl;
     
-    if (no_therm) {
-        cout << "Thermalization disabled (--no-therm)" << endl;
-    } else {
+    if (!no_therm) {
         auto therm_start = chrono::steady_clock::now();
         cout << "Thermalizing (" << therm_steps << " steps)..." << endl;
 
@@ -671,14 +677,10 @@ int main(int argc, const char *argv[])
         t += dt;
         ++i;
 
-        if (i%write_every_n_steps == 0) {
-
-            chrono::duration<double> step_elapsed = chrono::steady_clock::now() - step_start;
-            chrono::duration<double> main_loop_elapsed = chrono::steady_clock::now() - main_loop_start;
-            cout << i << "/" << n_steps << " steps (runtime: " << main_loop_elapsed.count() << " s, last step took " << step_elapsed.count()*1e3 << " ms)" << endl;
-            // cout.flush();
-
-        }
+        chrono::duration<double> step_elapsed = chrono::steady_clock::now() - step_start;
+        chrono::duration<double> main_loop_elapsed = chrono::steady_clock::now() - main_loop_start;
+        cout << i << "/" << n_steps << " steps (runtime: " << main_loop_elapsed.count() << " s, last step took " << step_elapsed.count()*1e3 << " ms)" << endl;
+        // cout.flush();
 
         // cout << "Finished step " << i << "/" << n_steps << endl;
     }
