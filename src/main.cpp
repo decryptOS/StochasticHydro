@@ -15,9 +15,11 @@
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_odeiv2.h>
 
-#include <fftw3.h>
-
+#ifdef _OPENMP
 #include <omp.h>
+#endif
+
+#include <fftw3.h>
 
 #include <boost/program_options.hpp>
 #include <boost/assert.hpp>
@@ -422,17 +424,22 @@ int main(int argc, const char *argv[])
         cout << "Ideal step disabled (--no-ideal-step)" << endl;
     }
 
+    Nsites = Nx*Ny*Nz;
+    
+#ifdef _OPENMP
     // Threaded FFTW: every batched plan below runs on all available cores.
     fftw_init_threads();
     fftw_plan_with_nthreads(omp_get_max_threads());
 
-    Nsites = Nx*Ny*Nz;
     if (Nsites>=NsitesOMPThreshold) {
         cout << "Using OpenMP in for loops" << endl;
     }
 
     cout << "OpenMP/FFTW threads: " << omp_get_max_threads()
         << " (of " << omp_get_num_procs() << " logical cores)" << endl;
+#else
+    cout << "OpenMP not available or disabled, using single thread" << endl;
+#endif
 
     //WARNING:
 //The fftw_plan_dft_c2r function destroys (overwrites) its input array (out) during execution to save memory.
@@ -699,7 +706,9 @@ int main(int argc, const char *argv[])
 
     fftw_destroy_plan(plan_l_to_lp);
 
+#ifdef _OPENMP
     fftw_cleanup_threads();
+#endif
 
     chrono::duration<double> wall_clock_elapsed = chrono::steady_clock::now() - wall_clock_start;
     cout << "                 Total run time= " << wall_clock_elapsed.count() << "s" << endl;
