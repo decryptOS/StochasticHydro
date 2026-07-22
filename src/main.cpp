@@ -686,7 +686,10 @@ int main(int argc, const char *argv[])
 
         chrono::duration<double> step_elapsed = chrono::steady_clock::now() - step_start;
         chrono::duration<double> main_loop_elapsed = chrono::steady_clock::now() - main_loop_start;
-        cout << i << "/" << n_steps << " steps (runtime: " << main_loop_elapsed.count() << " s, last step took " << step_elapsed.count()*1e3 << " ms)" << endl;
+
+        auto remaining_time_estimate = (n_steps-i)*main_loop_elapsed.count()/(double)i;
+        
+        cout << i << "/" << n_steps << " (" << 100.0*i/(double)n_steps << " %), t/step: " << step_elapsed.count()*1e3 << " ms, remaining time: ~" << remaining_time_estimate/(60.0*24.0) << " h" << endl;
         // cout.flush();
 
         // cout << "Finished step " << i << "/" << n_steps << endl;
